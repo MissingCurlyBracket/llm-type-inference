@@ -1,0 +1,27 @@
+{
+    "name": "llm-type-inference",
+    "version": "1.0.0",
+    "description": "A simple JavaScript to TypeScript type inference tool using OpenAI",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "tsc",
+        "infer": "ts-node src/infer.ts"
+    },
+    "dependencies": {
+        "openai": "^4.20.0",
+        "dotenv": "^16.0.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "typescript": "^5.0.0",
+        "ts-node": "^10.0.0"
+    },
+    "keywords": [
+        "typescript",
+        "type-inference",
+        "openai",
+        "javascript"
+    ],
+    "author": "",
+    "license": "MIT"
+}
