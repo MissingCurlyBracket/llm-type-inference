@@ -1,51 +1,126 @@
 import { TypeInference } from './basic-inference/type-inference';
 import { ASTTypeInference } from './ast-inference/ast-type-inference';
+import { TypeScriptParser, GroundTruthType } from './evaluation/typescript-parser';
+import { MetricsCalculator } from './evaluation/evaluation-metrics';
+import * as fs from 'fs';
+import * as path from 'path';
 
 async function main(): Promise<void> {
     try {
         const filePath = process.argv[2];
 
         if (!filePath) {
-            console.error('Usage: npm run compare <javascript-file-path>');
+            console.error('Usage: npm run compare <typescript-file-path>');
             console.error('');
-            console.error('Example: npm run compare sample.js');
+            console.error('Example: npm run compare test-samples/simple.ts');
             process.exit(1);
         }
 
-        console.log(`Comparing inference approaches for: ${filePath}`);
+        // Check if file exists and is a TypeScript file
+        if (!fs.existsSync(filePath)) {
+            console.error(`Error: File not found: ${filePath}`);
+            process.exit(1);
+        }
+
+        if (!filePath.endsWith('.ts')) {
+            console.error('Error: Please provide a TypeScript file (.ts extension)');
+            process.exit(1);
+        }
+
+        console.log(`Ground Truth Evaluation for: ${filePath}`);
         console.log('='.repeat(60));
 
-        // Run traditional source code approach
-        console.log('\n1. Traditional Source Code Approach:');
-        console.log('Sending raw source code to OpenAI...');
+        // Step 1: Parse TypeScript file to extract ground truth types
+        console.log('\n1. Extracting Ground Truth from TypeScript...');
+        const parser = new TypeScriptParser();
+        const groundTruth = parser.extractGroundTruth(filePath);
+        
+        console.log(`Ground truth extracted: ${groundTruth.length} identifiers`);
+        console.log('Ground truth types:');
+        groundTruth.forEach(gt => {
+            console.log(`  - ${gt.entity} '${gt.name}': ${JSON.stringify(gt.types)}`);
+        });
+
+        // Step 2: Convert TypeScript to JavaScript
+        console.log('\n2. Converting TypeScript to JavaScript...');
+        const jsCode = parser.convertToJavaScript(filePath);
+        const tempJsFile = filePath.replace('.ts', '.temp.js');
+        fs.writeFileSync(tempJsFile, jsCode);
+        console.log(`JavaScript version created: ${tempJsFile}`);
 
         try {
-            const traditionalInference = new TypeInference();
-            const traditionalResults = await traditionalInference.inferTypesFromFile(filePath);
+            // Step 3: Run traditional source code approach
+            console.log('\n3. Traditional Source Code Approach:');
+            console.log('Sending raw JavaScript code to OpenAI...');
+            
+            let traditionalResults: any[] = [];
+            let traditionalMetrics: any = null;
+            
+            try {
+                const traditionalInference = new TypeInference();
+                traditionalResults = await traditionalInference.inferTypesFromFile(tempJsFile);
+                traditionalMetrics = MetricsCalculator.calculateMetrics(traditionalResults, groundTruth);
+                
+                console.log('Results:');
+                console.log(JSON.stringify(traditionalResults, null, 2));
+                console.log(`\nMetrics:`);
+                printMetrics('Traditional', traditionalMetrics);
+            } catch (error) {
+                console.error('Traditional approach failed:', error instanceof Error ? error.message : String(error));
+            }
 
-            console.log('Results:');
-            console.log(JSON.stringify(traditionalResults, null, 2));
-            console.log(`Found ${traditionalResults.length} identifiers`);
-        } catch (error) {
-            console.error('Traditional approach failed:', error instanceof Error ? error.message : String(error));
+            // Step 4: Run AST-based approach
+            console.log('\n4. AST-based Approach:');
+            console.log('Parsing to AST first, then sending structure to OpenAI...');
+            
+            let astResults: any[] = [];
+            let astMetrics: any = null;
+            
+            try {
+                const astInference = new ASTTypeInference();
+                astResults = await astInference.inferTypesFromFile(tempJsFile);
+                astMetrics = MetricsCalculator.calculateMetrics(astResults, groundTruth);
+                
+                console.log('Results:');
+                console.log(JSON.stringify(astResults, null, 2));
+                console.log(`\nMetrics:`);
+                printMetrics('AST', astMetrics);
+            } catch (error) {
+                console.error('AST approach failed:', error instanceof Error ? error.message : String(error));
+            }
+
+            // Step 5: Detailed comparison
+            if (traditionalMetrics && astMetrics) {
+                console.log('\n5. Approach Comparison:');
+                console.log('='.repeat(40));
+                console.log(`Better Precision: ${traditionalMetrics.precision > astMetrics.precision ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.precision, astMetrics.precision).toFixed(3)} vs ${Math.min(traditionalMetrics.precision, astMetrics.precision).toFixed(3)})`);
+                console.log(`Better Recall: ${traditionalMetrics.recall > astMetrics.recall ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.recall, astMetrics.recall).toFixed(3)} vs ${Math.min(traditionalMetrics.recall, astMetrics.recall).toFixed(3)})`);
+                console.log(`Better F1-Score: ${traditionalMetrics.f1Score > astMetrics.f1Score ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.f1Score, astMetrics.f1Score).toFixed(3)} vs ${Math.min(traditionalMetrics.f1Score, astMetrics.f1Score).toFixed(3)})`);
+                
+                // Detailed analysis for traditional approach
+                if (traditionalResults.length > 0) {
+                    console.log('\n6. Traditional Approach - Detailed Analysis:');
+                    const traditionalComparison = MetricsCalculator.generateDetailedComparison(traditionalResults, groundTruth);
+                    printDetailedComparison(traditionalComparison);
+                }
+                
+                // Detailed analysis for AST approach
+                if (astResults.length > 0) {
+                    console.log('\n7. AST Approach - Detailed Analysis:');
+                    const astComparison = MetricsCalculator.generateDetailedComparison(astResults, groundTruth);
+                    printDetailedComparison(astComparison);
+                }
+            }
+
+        } finally {
+            // Clean up temporary JavaScript file
+            if (fs.existsSync(tempJsFile)) {
+                fs.unlinkSync(tempJsFile);
+                console.log(`\nCleaned up temporary file: ${tempJsFile}`);
+            }
         }
 
-        // Run AST-based approach
-        console.log('\n2. AST-based Approach:');
-        console.log('Parsing to AST first, then sending structure to OpenAI...');
-
-        try {
-            const astInference = new ASTTypeInference();
-            const astResults = await astInference.inferTypesFromFile(filePath);
-
-            console.log('Results:');
-            console.log(JSON.stringify(astResults, null, 2));
-            console.log(`Found ${astResults.length} identifiers`);
-        } catch (error) {
-            console.error('AST approach failed:', error instanceof Error ? error.message : String(error));
-        }
-
-        console.log('\nComparison completed!');
+        console.log('\nEvaluation completed!');
 
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -56,6 +131,42 @@ async function main(): Promise<void> {
         }
 
         process.exit(1);
+    }
+}
+
+function printMetrics(approach: string, metrics: any): void {
+    console.log(`  Precision: ${(metrics.precision * 100).toFixed(1)}%`);
+    console.log(`  Recall: ${(metrics.recall * 100).toFixed(1)}%`);
+    console.log(`  F1-Score: ${(metrics.f1Score * 100).toFixed(1)}%`);
+    console.log(`  Accuracy: ${(metrics.accuracy * 100).toFixed(1)}%`);
+    console.log(`  Correct: ${metrics.correctPredictions}/${metrics.totalPredictions}`);
+    console.log(`  True Positives: ${metrics.truePositives}`);
+    console.log(`  False Positives: ${metrics.falsePositives}`);
+    console.log(`  False Negatives: ${metrics.falseNegatives}`);
+}
+
+function printDetailedComparison(comparison: any[]): void {
+    const correct = comparison.filter(c => c.status === 'correct');
+    const incorrect = comparison.filter(c => c.status === 'incorrect');
+    const missing = comparison.filter(c => c.status === 'missing');
+    const extra = comparison.filter(c => c.status === 'extra');
+
+    console.log(`  Correct (${correct.length}):`);
+    correct.forEach(c => console.log(`    ✓ ${c.identifier}`));
+
+    if (incorrect.length > 0) {
+        console.log(`  Incorrect (${incorrect.length}):`);
+        incorrect.forEach(c => console.log(`    ✗ ${c.identifier}: ${c.details}`));
+    }
+
+    if (missing.length > 0) {
+        console.log(`  Missing (${missing.length}):`);
+        missing.forEach(c => console.log(`    - ${c.identifier}: ${c.details}`));
+    }
+
+    if (extra.length > 0) {
+        console.log(`  Extra (${extra.length}):`);
+        extra.forEach(c => console.log(`    + ${c.identifier}: ${c.details}`));
     }
 }
 

@@ -38,11 +38,18 @@ Parses JavaScript to AST first, then sends structured representation to the LLM:
 npm run ast-infer sample.js
 ```
 
-### Compare Both Approaches
-Run both approaches on the same file and see the differences:
+### Compare Both Approaches with Ground Truth Evaluation
+Run both approaches on a TypeScript file and evaluate against ground truth:
 ```bash
-npm run compare sample.js
+npm run compare test-samples/simple.ts
+npm run compare test-samples/complex.ts
 ```
+
+This will:
+1. Extract type annotations from the TypeScript file as ground truth
+2. Convert TypeScript to JavaScript (removing type information)
+3. Run both inference approaches on the JavaScript code
+4. Compare results with ground truth using precision, recall, and F1-score metrics
 
 ### Build for Production
 ```bash
@@ -86,9 +93,25 @@ Both approaches return the same JSON format:
 ]
 ```
 
-## Example
+## Ground Truth Evaluation
 
-Given this JavaScript code (`sample.js`):
+The tool now supports rigorous evaluation using TypeScript files as ground truth:
+
+### Process:
+1. **Extract Ground Truth**: Parse TypeScript file to extract actual type annotations
+2. **Convert to JavaScript**: Remove all type information using TypeScript compiler
+3. **Run Inference**: Apply both approaches to the plain JavaScript code
+4. **Evaluate**: Compare inferred types with original TypeScript types
+
+### Metrics:
+- **Precision**: Percentage of predicted types that are correct
+- **Recall**: Percentage of actual types that were correctly predicted  
+- **F1-Score**: Harmonic mean of precision and recall
+- **Accuracy**: Overall percentage of correct predictions
+
+### Test Samples:
+- `test-samples/simple.ts`: Basic functions and variables
+- `test-samples/complex.ts`: Classes, interfaces, and advanced types
 ```javascript
 function calculateArea(width, height) {
   return width * height;
