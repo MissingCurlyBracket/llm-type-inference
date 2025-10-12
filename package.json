@@ -5,11 +5,15 @@
     "main": "dist/index.js",
     "scripts": {
         "build": "tsc",
-        "infer": "ts-node src/infer.ts"
+        "infer": "ts-node src/basic-inference/infer.ts",
+        "ast-infer": "ts-node src/ast-inference/ast-infer.ts",
+        "compare": "ts-node src/compare.ts"
     },
     "dependencies": {
         "openai": "^4.20.0",
-        "dotenv": "^16.0.0"
+        "dotenv": "^16.0.0",
+        "@babel/parser": "^7.23.0",
+        "@babel/types": "^7.23.0"
     },
     "devDependencies": {
         "@types/node": "^20.0.0",

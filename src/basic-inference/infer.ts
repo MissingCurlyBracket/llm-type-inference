@@ -15,21 +15,21 @@ async function main(): Promise<void> {
             process.exit(1);
         }
 
-        console.log(`🔍 Analyzing file: ${filePath}`);
-        console.log('📤 Sending to OpenAI for type inference...');
+        console.log(`Analyzing file: ${filePath}`);
+        console.log('Sending to OpenAI for type inference...');
 
         const typeInferences = await typeInference.inferTypesFromFile(filePath);
 
-        console.log('\n✅ Type Inference Results:');
+        console.log('\nType Inference Results:');
         console.log('='.repeat(50));
         console.log(JSON.stringify(typeInferences, null, 2));
 
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('❌ Error:', errorMessage);
+        console.error('Error:', errorMessage);
 
         if (errorMessage.includes('OPENAI_API_KEY')) {
-            console.error('\n💡 Make sure to set your OPENAI_API_KEY in the .env file');
+            console.error('\nMake sure to set your OPENAI_API_KEY in the .env file');
         }
 
         process.exit(1);
