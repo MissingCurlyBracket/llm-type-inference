@@ -126,10 +126,12 @@ export class MetricsCalculator {
      * Check if predicted types match ground truth types
      */
     private static typesMatch(predicted: any, groundTruth: any): boolean {
-        // Normalize return types
+        // Normalize and compare return types
         if (predicted.return && groundTruth.return) {
-            if (!this.normalizeType(predicted.return).includes(this.normalizeType(groundTruth.return)) &&
-                !this.normalizeType(groundTruth.return).includes(this.normalizeType(predicted.return))) {
+            const normalizedPredicted = this.normalizeType(predicted.return);
+            const normalizedGroundTruth = this.normalizeType(groundTruth.return);
+
+            if (normalizedPredicted !== normalizedGroundTruth) {
                 return false;
             }
         }
@@ -138,13 +140,24 @@ export class MetricsCalculator {
         if (predicted.params && groundTruth.params) {
             const predParams = predicted.params;
             const gtParams = groundTruth.params;
-            
+
+            // Check all ground truth parameters are present and match
             for (const paramName in gtParams) {
                 if (!predParams[paramName]) {
                     return false;
                 }
-                if (!this.normalizeType(predParams[paramName]).includes(this.normalizeType(gtParams[paramName])) &&
-                    !this.normalizeType(gtParams[paramName]).includes(this.normalizeType(predParams[paramName]))) {
+
+                const normalizedPredParam = this.normalizeType(predParams[paramName]);
+                const normalizedGtParam = this.normalizeType(gtParams[paramName]);
+
+                if (normalizedPredParam !== normalizedGtParam) {
+                    return false;
+                }
+            }
+
+            // Check no extra parameters in prediction (optional - can be removed if we want to be more lenient)
+            for (const paramName in predParams) {
+                if (!gtParams[paramName]) {
                     return false;
                 }
             }
@@ -162,7 +175,17 @@ export class MetricsCalculator {
             .replace(/\[\]/g, 'array')
             .replace(/array<([^>]+)>/g, '$1array')
             .replace(/\{\}/g, 'object')
-            .replace(/promise<([^>]+)>/g, 'promise');
+            .replace(/promise<([^>]+)>/g, 'promise')
+            // Normalize object type separators: both ',' and ';' should be treated the same
+            .replace(/[;,]/g, ',')
+            // Sort object properties for consistent comparison
+            .replace(/\{([^}]+)\}/g, (match, content) => {
+                const properties = content.split(',')
+                    .map((prop: string) => prop.trim())
+                    .filter((prop: string) => prop.length > 0)
+                    .sort();
+                return `{${properties.join(',')}}`;
+            });
     }
 
     /**
@@ -174,7 +197,7 @@ export class MetricsCalculator {
         if (predicted.return && groundTruth.return) {
             const predReturn = this.normalizeType(predicted.return);
             const gtReturn = this.normalizeType(groundTruth.return);
-            if (!predReturn.includes(gtReturn) && !gtReturn.includes(predReturn)) {
+            if (predReturn !== gtReturn) {
                 differences.push(`Return type: predicted '${predicted.return}' vs actual '${groundTruth.return}'`);
             }
         }
@@ -186,7 +209,7 @@ export class MetricsCalculator {
                 } else {
                     const predParam = this.normalizeType(predicted.params[paramName]);
                     const gtParam = this.normalizeType(groundTruth.params[paramName]);
-                    if (!predParam.includes(gtParam) && !gtParam.includes(predParam)) {
+                    if (predParam !== gtParam) {
                         differences.push(`Parameter ${paramName}: predicted '${predicted.params[paramName]}' vs actual '${groundTruth.params[paramName]}'`);
                     }
                 }
