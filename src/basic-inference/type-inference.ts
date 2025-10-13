@@ -5,8 +5,12 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 export interface TypeInferenceResult {
-    entity: 'function' | 'variable' | 'class';
+    entity: 'function' | 'variable' | 'class' | 'class-method';
     name: string;
+    location: {
+        line: number;
+        column: number;
+    };
     types: {
         params?: { [paramName: string]: string };
         return: string;
@@ -37,16 +41,42 @@ ${sourceCode}
 
 Respond only with a JSON array using this exact schema for each identifier found:
 {
-  "entity": "function|variable|class",
+  "entity": "function|variable|class|class-method",
   "name": "identifier_name",
+  "location": {
+    "line": line_number,
+    "column": column_number
+  },
   "types": {
     "params": { "paramName": "type" },
     "return": "type"
   }
 }
 
-For variables, only use the "return" field in types. For functions, use both "params" and "return".
-Use specific TypeScript types like: string, number, boolean, object, array, function, null, undefined.
+IMPORTANT EXTRACTION RULES:
+1. Extract ALL identifiers including:
+   - Top-level functions (entity: "function")
+   - Variables and constants (entity: "variable")
+   - Class declarations (entity: "class")
+   - Class methods (entity: "class-method", name format: "ClassName.methodName")
+   - Arrow functions assigned to variables (entity: "function")
+
+2. For class methods, you MUST:
+   - Use entity type "class-method" 
+   - Format name as "ClassName.methodName" (e.g., "Calculator.add")
+   - Include both params and return types
+
+3. TYPE INFERENCE RULES:
+   - Use specific TypeScript types: string, number, boolean, array, function, null, undefined, void
+   - For object types, prefer interface/class names if defined in the code
+   - For arrays, use "type[]" notation
+   - For class instances, use the class name as the type
+   - Consider identifier names for context clues to what the type might be
+
+4. TYPES OBJECT RULES:
+   - For classes: use "return": "ClassName" (the class name itself)
+   - For variables: only use the "return" field in types
+   - For functions and class-methods: use both "params" and "return"
 
 Return only the JSON array, no markdown formatting or explanations.`;
 
@@ -104,14 +134,19 @@ Return only the JSON array, no markdown formatting or explanations.`;
                 throw new Error(`Invalid item at index ${index}: must be an object`);
             }
 
-            const { entity, name, types } = item;
+            const { entity, name, location, types } = item;
 
-            if (!['function', 'variable', 'class'].includes(entity)) {
-                throw new Error(`Invalid entity at index ${index}: must be 'function', 'variable', or 'class'`);
+            if (!['function', 'variable', 'class', 'class-method'].includes(entity)) {
+                throw new Error(`Invalid entity at index ${index}: must be 'function', 'variable', 'class', or 'class-method'`);
             }
 
             if (typeof name !== 'string') {
                 throw new Error(`Invalid name at index ${index}: must be a string`);
+            }
+
+            if (!location || typeof location !== 'object' ||
+                typeof location.line !== 'number' || typeof location.column !== 'number') {
+                throw new Error(`Invalid location at index ${index}: must be an object with line and column numbers`);
             }
 
             if (!types || typeof types !== 'object') {
@@ -123,8 +158,12 @@ Return only the JSON array, no markdown formatting or explanations.`;
             }
 
             return {
-                entity: entity as 'function' | 'variable' | 'class',
+                entity: entity as 'function' | 'variable' | 'class' | 'class-method',
                 name,
+                location: {
+                    line: location.line,
+                    column: location.column
+                },
                 types: {
                     ...(types.params && { params: types.params }),
                     return: types.return

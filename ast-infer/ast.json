@@ -1,0 +1,73 @@
+{
+  "extractedNodes": [
+    {
+      "type": "ClassDeclaration",
+      "name": "AdvancedCalculator",
+      "body": "class_info:{methods: [{\"name\":\"constructor\",\"params\":[\"initialValue\"],\"kind\":\"constructor\"},{\"name\":\"add\",\"params\":[\"value\"],\"kind\":\"method\"},{\"name\":\"getHistory\",\"params\":[],\"kind\":\"method\"},{\"name\":\"clear\",\"params\":[],\"kind\":\"method\"}], properties: []}",
+      "location": {
+        "line": 2,
+        "column": 0
+      }
+    },
+    {
+      "type": "VariableDeclaration",
+      "name": "result",
+      "init": "unknown",
+      "location": {
+        "line": 7,
+        "column": 14
+      }
+    },
+    {
+      "type": "FunctionDeclaration",
+      "name": "findPerson",
+      "params": [
+        "people",
+        "name"
+      ],
+      "body": "{ 1 statements }",
+      "location": {
+        "line": 18,
+        "column": 0
+      }
+    },
+    {
+      "type": "ArrowFunction",
+      "name": "asyncFunction",
+      "params": [
+        "id"
+      ],
+      "body": "{ 1 statements }",
+      "location": {
+        "line": 21,
+        "column": 6
+      }
+    },
+    {
+      "type": "ArrowFunction",
+      "name": "multiply",
+      "params": [
+        "x",
+        "y"
+      ],
+      "body": "binary operation (*)",
+      "location": {
+        "line": 25,
+        "column": 6
+      }
+    },
+    {
+      "type": "ArrowFunction",
+      "name": "createUser",
+      "params": [
+        "name",
+        "age"
+      ],
+      "body": "expression",
+      "location": {
+        "line": 26,
+        "column": 6
+      }
+    }
+  ]
+}

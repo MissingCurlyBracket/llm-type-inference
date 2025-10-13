@@ -1,15 +1,9 @@
 import { GroundTruthType } from './typescript-parser';
 
 export interface EvaluationMetrics {
-    precision: number;
-    recall: number;
-    f1Score: number;
     accuracy: number;
     totalPredictions: number;
     correctPredictions: number;
-    truePositives: number;
-    falsePositives: number;
-    falseNegatives: number;
 }
 
 export interface DetailedComparison {
@@ -25,53 +19,27 @@ export class MetricsCalculator {
      * Calculate evaluation metrics comparing predictions with ground truth
      */
     static calculateMetrics(predicted: any[], groundTruth: GroundTruthType[]): EvaluationMetrics {
-        let truePositives = 0;
-        let falsePositives = 0;
-        let falseNegatives = 0;
         let correctPredictions = 0;
 
         // Create maps for easier comparison
         const predictedMap = new Map(predicted.map(p => [p.name, p]));
         const groundTruthMap = new Map(groundTruth.map(gt => [gt.name, gt]));
 
-        // Calculate true positives and false positives
+        // Calculate correct predictions
         for (const [name, pred] of predictedMap) {
             const gt = groundTruthMap.get(name);
-            if (gt) {
-                if (this.typesMatch(pred.types, gt.types)) {
-                    truePositives++;
-                    correctPredictions++;
-                } else {
-                    falsePositives++;
-                }
-            } else {
-                falsePositives++;
-            }
-        }
-
-        // Calculate false negatives
-        for (const [name] of groundTruthMap) {
-            if (!predictedMap.has(name)) {
-                falseNegatives++;
+            if (gt && this.typesMatch(pred.types, gt.types)) {
+                correctPredictions++;
             }
         }
 
         const totalPredictions = predicted.length;
-        const precision = truePositives / (truePositives + falsePositives) || 0;
-        const recall = truePositives / (truePositives + falseNegatives) || 0;
-        const f1Score = 2 * (precision * recall) / (precision + recall) || 0;
         const accuracy = correctPredictions / totalPredictions || 0;
 
         return {
-            precision,
-            recall,
-            f1Score,
             accuracy,
             totalPredictions,
-            correctPredictions,
-            truePositives,
-            falsePositives,
-            falseNegatives
+            correctPredictions
         };
     }
 

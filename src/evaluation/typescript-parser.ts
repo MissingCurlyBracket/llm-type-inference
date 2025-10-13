@@ -2,8 +2,12 @@ import * as ts from 'typescript';
 import * as fs from 'fs';
 
 export interface GroundTruthType {
-    entity: 'function' | 'variable' | 'class';
+    entity: 'function' | 'variable' | 'class' | 'class-method';
     name: string;
+    location: {
+        line: number;
+        column: number;
+    };
     types: {
         params?: { [paramName: string]: string };
         return: string;
@@ -24,13 +28,21 @@ export class TypeScriptParser {
         );
 
         const groundTruth: GroundTruthType[] = [];
-        
+
+        const getLocation = (node: ts.Node) => {
+            const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart());
+            return {
+                line: line + 1, // Convert to 1-based
+                column: character + 1 // Convert to 1-based
+            };
+        };
+
         const visit = (node: ts.Node) => {
             // Function declarations
             if (ts.isFunctionDeclaration(node) && node.name) {
                 const functionName = node.name.text;
                 const params: { [key: string]: string } = {};
-                
+
                 // Extract parameter types
                 node.parameters.forEach(param => {
                     if (ts.isIdentifier(param.name) && param.type) {
@@ -44,6 +56,7 @@ export class TypeScriptParser {
                 groundTruth.push({
                     entity: 'function',
                     name: functionName,
+                    location: getLocation(node),
                     types: {
                         params,
                         return: returnType
@@ -58,6 +71,7 @@ export class TypeScriptParser {
                         groundTruth.push({
                             entity: 'variable',
                             name: decl.name.text,
+                            location: getLocation(decl),
                             types: {
                                 return: this.typeToString(decl.type)
                             }
@@ -71,6 +85,7 @@ export class TypeScriptParser {
                 groundTruth.push({
                     entity: 'class',
                     name: node.name.text,
+                    location: getLocation(node),
                     types: {
                         return: node.name.text
                     }
@@ -78,10 +93,12 @@ export class TypeScriptParser {
 
                 // Process class methods
                 node.members.forEach(member => {
-                    if (ts.isMethodDeclaration(member) && ts.isIdentifier(member.name)) {
+                    if (ts.isMethodDeclaration(member) && ts.isIdentifier(member.name) && node.name) {
+                        const className = node.name.text;
                         const methodName = member.name.text;
+                        const fullMethodName = `${className}.${methodName}`;
                         const params: { [key: string]: string } = {};
-                        
+
                         member.parameters.forEach(param => {
                             if (ts.isIdentifier(param.name) && param.type) {
                                 params[param.name.text] = this.typeToString(param.type);
@@ -91,8 +108,9 @@ export class TypeScriptParser {
                         const returnType = member.type ? this.typeToString(member.type) : 'any';
 
                         groundTruth.push({
-                            entity: 'function',
-                            name: methodName,
+                            entity: 'class-method',
+                            name: fullMethodName,
+                            location: getLocation(member),
                             types: {
                                 params,
                                 return: returnType
@@ -108,7 +126,7 @@ export class TypeScriptParser {
                     if (ts.isIdentifier(decl.name) && decl.initializer && ts.isArrowFunction(decl.initializer)) {
                         const arrowFunc = decl.initializer;
                         const params: { [key: string]: string } = {};
-                        
+
                         arrowFunc.parameters.forEach(param => {
                             if (ts.isIdentifier(param.name) && param.type) {
                                 params[param.name.text] = this.typeToString(param.type);
@@ -120,6 +138,7 @@ export class TypeScriptParser {
                         groundTruth.push({
                             entity: 'function',
                             name: decl.name.text,
+                            location: getLocation(decl),
                             types: {
                                 params,
                                 return: returnType
@@ -141,7 +160,7 @@ export class TypeScriptParser {
      */
     convertToJavaScript(tsFilePath: string): string {
         const sourceCode = fs.readFileSync(tsFilePath, 'utf-8');
-        
+
         const result = ts.transpile(sourceCode, {
             target: ts.ScriptTarget.ES2020,
             module: ts.ModuleKind.CommonJS,

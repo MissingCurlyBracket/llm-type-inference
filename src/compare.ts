@@ -93,9 +93,7 @@ async function main(): Promise<void> {
             if (traditionalMetrics && astMetrics) {
                 console.log('\n5. Approach Comparison:');
                 console.log('='.repeat(40));
-                console.log(`Better Precision: ${traditionalMetrics.precision > astMetrics.precision ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.precision, astMetrics.precision).toFixed(3)} vs ${Math.min(traditionalMetrics.precision, astMetrics.precision).toFixed(3)})`);
-                console.log(`Better Recall: ${traditionalMetrics.recall > astMetrics.recall ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.recall, astMetrics.recall).toFixed(3)} vs ${Math.min(traditionalMetrics.recall, astMetrics.recall).toFixed(3)})`);
-                console.log(`Better F1-Score: ${traditionalMetrics.f1Score > astMetrics.f1Score ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.f1Score, astMetrics.f1Score).toFixed(3)} vs ${Math.min(traditionalMetrics.f1Score, astMetrics.f1Score).toFixed(3)})`);
+                console.log(`Better Accuracy: ${traditionalMetrics.accuracy > astMetrics.accuracy ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.accuracy, astMetrics.accuracy).toFixed(3)} vs ${Math.min(traditionalMetrics.accuracy, astMetrics.accuracy).toFixed(3)})`);
                 
                 // Detailed analysis for traditional approach
                 if (traditionalResults.length > 0) {
@@ -135,14 +133,8 @@ async function main(): Promise<void> {
 }
 
 function printMetrics(approach: string, metrics: any): void {
-    console.log(`  Precision: ${(metrics.precision * 100).toFixed(1)}%`);
-    console.log(`  Recall: ${(metrics.recall * 100).toFixed(1)}%`);
-    console.log(`  F1-Score: ${(metrics.f1Score * 100).toFixed(1)}%`);
     console.log(`  Accuracy: ${(metrics.accuracy * 100).toFixed(1)}%`);
     console.log(`  Correct: ${metrics.correctPredictions}/${metrics.totalPredictions}`);
-    console.log(`  True Positives: ${metrics.truePositives}`);
-    console.log(`  False Positives: ${metrics.falsePositives}`);
-    console.log(`  False Negatives: ${metrics.falseNegatives}`);
 }
 
 function printDetailedComparison(comparison: any[]): void {
