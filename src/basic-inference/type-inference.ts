@@ -44,8 +44,8 @@ Respond only with a JSON array using this exact schema for each identifier found
   "entity": "function|variable|class|class-method",
   "name": "identifier_name",
   "location": {
-    "line": line_number,
-    "column": column_number
+    "line": 1,
+    "column": 0
   },
   "types": {
     "params": { "paramName": "type" },
@@ -61,22 +61,31 @@ IMPORTANT EXTRACTION RULES:
    - Class methods (entity: "class-method", name format: "ClassName.methodName")
    - Arrow functions assigned to variables (entity: "function")
 
-2. For class methods, you MUST:
-   - Use entity type "class-method" 
-   - Format name as "ClassName.methodName" (e.g., "Calculator.add")
-   - Include both params and return types
+2. For location field:
+   - Estimate line numbers by counting lines in the source code
+   - Use column 0 if exact position is unknown
+   - ALWAYS include location object with line and column numbers
 
-3. TYPE INFERENCE RULES:
+3. For types object:
+   - ALWAYS include "return" field
+   - For functions and class-methods: include "params" object (can be empty {})
+   - For variables and classes: omit "params" field entirely
+   - Example for function: "types": {"params": {"a": "number", "b": "number"}, "return": "number"}
+   - Example for variable: "types": {"return": "string"}
+   - Example for class: "types": {"return": "ClassName"}
+
+4. TYPE INFERENCE RULES:
    - Use specific TypeScript types: string, number, boolean, array, function, null, undefined, void
    - For object types, prefer interface/class names if defined in the code
    - For arrays, use "type[]" notation
    - For class instances, use the class name as the type
-   - Consider identifier names for context clues to what the type might be
+   - For class methods, use entity "class-method" and format name as "ClassName.methodName"
 
-4. TYPES OBJECT RULES:
-   - For classes: use "return": "ClassName" (the class name itself)
-   - For variables: only use the "return" field in types
-   - For functions and class-methods: use both "params" and "return"
+5. REQUIRED JSON STRUCTURE:
+   - Every item MUST have: entity, name, location, types
+   - location MUST have: line (number), column (number)
+   - types MUST have: return (string)
+   - types MAY have: params (object) - only for functions and class-methods
 
 Return only the JSON array, no markdown formatting or explanations.`;
 
@@ -85,7 +94,7 @@ Return only the JSON array, no markdown formatting or explanations.`;
                 model: "gpt-3.5-turbo",
                 messages: [{ role: "user", content: prompt }],
                 temperature: 0.1,
-                max_tokens: 2000
+                max_tokens: 4000
             });
 
             const content = response.choices[0]?.message?.content?.trim();
@@ -136,19 +145,25 @@ Return only the JSON array, no markdown formatting or explanations.`;
 
             const { entity, name, location, types } = item;
 
+            // Validate entity
             if (!['function', 'variable', 'class', 'class-method'].includes(entity)) {
                 throw new Error(`Invalid entity at index ${index}: must be 'function', 'variable', 'class', or 'class-method'`);
             }
 
+            // Validate name
             if (typeof name !== 'string') {
                 throw new Error(`Invalid name at index ${index}: must be a string`);
             }
 
-            if (!location || typeof location !== 'object' ||
-                typeof location.line !== 'number' || typeof location.column !== 'number') {
-                throw new Error(`Invalid location at index ${index}: must be an object with line and column numbers`);
+            // Validate location (more lenient)
+            if (!location || typeof location !== 'object') {
+                throw new Error(`Invalid location at index ${index}: must be an object`);
             }
 
+            const line = typeof location.line === 'number' ? location.line : 1;
+            const column = typeof location.column === 'number' ? location.column : 0;
+
+            // Validate types
             if (!types || typeof types !== 'object') {
                 throw new Error(`Invalid types at index ${index}: must be an object`);
             }
@@ -157,15 +172,23 @@ Return only the JSON array, no markdown formatting or explanations.`;
                 throw new Error(`Invalid return type at index ${index}: must be a string`);
             }
 
+            // Validate params based on entity type
+            let params: { [key: string]: string } | undefined;
+            if (entity === 'function' || entity === 'class-method') {
+                if (types.params && typeof types.params === 'object') {
+                    params = types.params;
+                } else {
+                    params = {}; // Default to empty params for functions
+                }
+            }
+            // For variables and classes, params should not be included
+
             return {
                 entity: entity as 'function' | 'variable' | 'class' | 'class-method',
                 name,
-                location: {
-                    line: location.line,
-                    column: location.column
-                },
+                location: { line, column },
                 types: {
-                    ...(types.params && { params: types.params }),
+                    ...(params !== undefined && { params }),
                     return: types.return
                 }
             };

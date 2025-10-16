@@ -23,9 +23,24 @@ export interface TypeInferenceResult {
 interface ASTNode {
   type: string;
   name: string;
-  params?: string[];
-  body?: string;
-  init?: string;
+  params?: Array<{
+    name: string;
+    defaultValue?: string;
+    usagePatterns?: string[];
+  }>;
+  body?: {
+    summary: string;
+    returnStatements?: string[];
+    variableUsage?: { [varName: string]: string[] };
+    functionCalls?: string[];
+    typeHints?: string[];
+    controlFlow?: string[];
+  };
+  init?: {
+    type: string;
+    value?: any;
+    inferredType: string;
+  };
   location: {
     line: number;
     column: number;
@@ -81,12 +96,8 @@ export class ASTTypeInference {
         nodes.push({
           type: 'FunctionDeclaration',
           name: node.id.name,
-          params: node.params.map(param => {
-            if (t.isIdentifier(param)) return param.name;
-            if (t.isAssignmentPattern(param) && t.isIdentifier(param.left)) return param.left.name;
-            return 'unknown';
-          }),
-          body: this.extractBodySummary(node.body),
+          params: node.params.map(param => this.analyzeParameter(param, node.body)),
+          body: this.analyzeBlockStatement(node.body),
           location: {
             line: node.loc?.start.line || 0,
             column: node.loc?.start.column || 0
@@ -95,16 +106,16 @@ export class ASTTypeInference {
       }
 
       // Extract arrow functions assigned to variables
-      if (t.isVariableDeclarator(node) && t.isArrowFunctionExpression(node.init) && t.isIdentifier(node.id)) {
+      if (t.isVariableDeclarator(node) && node.init && t.isArrowFunctionExpression(node.init) && t.isIdentifier(node.id)) {
+        const arrowFunc = node.init as t.ArrowFunctionExpression; // Type assertion
+
         nodes.push({
           type: 'ArrowFunction',
           name: node.id.name,
-          params: node.init.params.map(param => {
-            if (t.isIdentifier(param)) return param.name;
-            if (t.isAssignmentPattern(param) && t.isIdentifier(param.left)) return param.left.name;
-            return 'unknown';
-          }),
-          body: this.extractBodySummary(node.init.body),
+          params: arrowFunc.params.map(param => this.analyzeParameter(param, arrowFunc.body)),
+          body: t.isBlockStatement(arrowFunc.body)
+            ? this.analyzeBlockStatement(arrowFunc.body)
+            : this.analyzeExpression(arrowFunc.body),
           location: {
             line: node.loc?.start.line || 0,
             column: node.loc?.start.column || 0
@@ -113,11 +124,11 @@ export class ASTTypeInference {
       }
 
       // Extract variable declarations
-      if (t.isVariableDeclarator(node) && t.isIdentifier(node.id) && !t.isArrowFunctionExpression(node.init)) {
+      if (t.isVariableDeclarator(node) && t.isIdentifier(node.id) && node.init && !t.isArrowFunctionExpression(node.init)) {
         nodes.push({
           type: 'VariableDeclaration',
           name: node.id.name,
-          init: this.extractInitializerSummary(node.init),
+          init: this.analyzeInitializer(node.init),
           location: {
             line: node.loc?.start.line || 0,
             column: node.loc?.start.column || 0
@@ -150,10 +161,34 @@ export class ASTTypeInference {
         nodes.push({
           type: 'ClassDeclaration',
           name: node.id.name,
-          body: `class_info:{methods: ${JSON.stringify(methods)}, properties: ${JSON.stringify(properties)}}`,
+          body: {
+            summary: `class with ${node.body.body.length} members`,
+            typeHints: [`class ${node.id.name}`, `methods: ${methods.map(m => m.name).join(', ')}`],
+            functionCalls: [],
+            variableUsage: {},
+            returnStatements: [],
+            controlFlow: []
+          },
           location: {
             line: node.loc?.start.line || 0,
             column: node.loc?.start.column || 0
+          }
+        });
+
+        // Add class methods as separate nodes
+        node.body.body.forEach((member: any) => {
+          if (t.isClassMethod(member) && t.isIdentifier(member.key) && node.id) {
+            const methodName = `${node.id.name}.${member.key.name}`;
+            nodes.push({
+              type: 'ClassMethod',
+              name: methodName,
+              params: member.params.map(param => this.analyzeParameter(param, member.body)),
+              body: this.analyzeBlockStatement(member.body),
+              location: {
+                line: member.loc?.start.line || 0,
+                column: member.loc?.start.column || 0
+              }
+            });
           }
         });
       }
@@ -174,70 +209,294 @@ export class ASTTypeInference {
     return nodes;
   }
 
-  private extractBodySummary(body: any): string {
-    if (!body) return 'undefined';
+  private analyzeParameter(param: any, functionBody: any): {
+    name: string;
+    defaultValue?: string;
+    usagePatterns?: string[];
+  } {
+    const result: any = { name: 'unknown' };
 
-    if (t.isBlockStatement(body)) {
-      return `{ ${body.body.length} statements }`;
+    if (t.isIdentifier(param)) {
+      result.name = param.name;
+      result.usagePatterns = this.findParameterUsage(param.name, functionBody);
+    } else if (t.isAssignmentPattern(param) && t.isIdentifier(param.left)) {
+      result.name = param.left.name;
+      result.defaultValue = this.extractValueFromNode(param.right);
+      result.usagePatterns = this.findParameterUsage(param.left.name, functionBody);
     }
 
-    if (t.isExpression(body)) {
-      return this.extractExpressionSummary(body);
+    return result;
+  }
+
+  private analyzeBlockStatement(body: any): {
+    summary: string;
+    returnStatements?: string[];
+    variableUsage?: { [varName: string]: string[] };
+    functionCalls?: string[];
+    typeHints?: string[];
+    controlFlow?: string[];
+  } {
+    if (!body || !t.isBlockStatement(body)) {
+      return { summary: 'unknown' };
     }
 
+    const result = {
+      summary: `{ ${body.body.length} statements }`,
+      returnStatements: [] as string[],
+      variableUsage: {} as { [varName: string]: string[] },
+      functionCalls: [] as string[],
+      typeHints: [] as string[],
+      controlFlow: [] as string[]
+    };
+
+    // Analyze each statement in the function body
+    body.body.forEach((statement: any) => {
+      this.analyzeStatement(statement, result);
+    });
+
+    return result;
+  }
+
+  private analyzeExpression(expr: any): {
+    summary: string;
+    returnStatements?: string[];
+    variableUsage?: { [varName: string]: string[] };
+    functionCalls?: string[];
+    typeHints?: string[];
+    controlFlow?: string[];
+  } {
+    const result = {
+      summary: 'expression',
+      returnStatements: [] as string[],
+      variableUsage: {} as { [varName: string]: string[] },
+      functionCalls: [] as string[],
+      typeHints: [] as string[],
+      controlFlow: [] as string[]
+    };
+
+    if (t.isBinaryExpression(expr)) {
+      result.summary = `binary operation (${expr.operator})`;
+      result.typeHints.push(this.inferTypeFromBinaryOp(expr.operator));
+    } else if (t.isCallExpression(expr)) {
+      result.summary = 'function call expression';
+      if (t.isIdentifier(expr.callee)) {
+        result.functionCalls.push(expr.callee.name);
+      } else if (t.isMemberExpression(expr.callee) && t.isIdentifier(expr.callee.property)) {
+        result.functionCalls.push(`method: ${expr.callee.property.name}`);
+      }
+    } else if (t.isStringLiteral(expr)) {
+      result.summary = 'string literal';
+      result.typeHints.push('string');
+    } else if (t.isNumericLiteral(expr)) {
+      result.summary = 'numeric literal';
+      result.typeHints.push('number');
+    } else if (t.isBooleanLiteral(expr)) {
+      result.summary = 'boolean literal';
+      result.typeHints.push('boolean');
+    } else if (t.isArrayExpression(expr)) {
+      result.summary = 'array expression';
+      result.typeHints.push('array');
+    } else if (t.isObjectExpression(expr)) {
+      result.summary = 'object expression';
+      result.typeHints.push('object');
+    }
+
+    return result;
+  }
+
+  private analyzeStatement(statement: any, result: any): void {
+    if (t.isReturnStatement(statement)) {
+      if (statement.argument) {
+        const returnValue = this.extractValueFromNode(statement.argument);
+        result.returnStatements.push(returnValue);
+
+        // Infer type from return value
+        if (t.isStringLiteral(statement.argument)) {
+          result.typeHints.push('returns string');
+        } else if (t.isNumericLiteral(statement.argument)) {
+          result.typeHints.push('returns number');
+        } else if (t.isBooleanLiteral(statement.argument)) {
+          result.typeHints.push('returns boolean');
+        } else if (t.isArrayExpression(statement.argument)) {
+          result.typeHints.push('returns array');
+        } else if (t.isObjectExpression(statement.argument)) {
+          result.typeHints.push('returns object');
+        } else if (t.isCallExpression(statement.argument)) {
+          result.typeHints.push('returns function call result');
+        } else if (t.isBinaryExpression(statement.argument)) {
+          result.typeHints.push(`returns ${this.inferTypeFromBinaryOp(statement.argument.operator)}`);
+        }
+      } else {
+        result.returnStatements.push('undefined');
+        result.typeHints.push('returns void');
+      }
+    } else if (t.isVariableDeclaration(statement)) {
+      statement.declarations.forEach((decl: any) => {
+        if (t.isIdentifier(decl.id) && decl.init) {
+          const varName = decl.id.name;
+          const initValue = this.extractValueFromNode(decl.init);
+          if (!result.variableUsage[varName]) {
+            result.variableUsage[varName] = [];
+          }
+          result.variableUsage[varName].push(`initialized with: ${initValue}`);
+        }
+      });
+    } else if (t.isExpressionStatement(statement)) {
+      this.analyzeExpressionForUsage(statement.expression, result);
+    } else if (t.isIfStatement(statement)) {
+      result.controlFlow.push('if statement');
+      if (statement.consequent) this.analyzeStatement(statement.consequent, result);
+      if (statement.alternate) this.analyzeStatement(statement.alternate, result);
+    } else if (t.isForStatement(statement) || t.isWhileStatement(statement)) {
+      result.controlFlow.push('loop');
+    }
+  }
+
+  private analyzeExpressionForUsage(expr: any, result: any): void {
+    if (t.isCallExpression(expr)) {
+      if (t.isIdentifier(expr.callee)) {
+        result.functionCalls.push(expr.callee.name);
+      } else if (t.isMemberExpression(expr.callee) && t.isIdentifier(expr.callee.property)) {
+        result.functionCalls.push(`method: ${expr.callee.property.name}`);
+      }
+    } else if (t.isAssignmentExpression(expr)) {
+      if (t.isIdentifier(expr.left)) {
+        const varName = expr.left.name;
+        const assignedValue = this.extractValueFromNode(expr.right);
+        if (!result.variableUsage[varName]) {
+          result.variableUsage[varName] = [];
+        }
+        result.variableUsage[varName].push(`assigned: ${assignedValue}`);
+      }
+    }
+  }
+
+  private findParameterUsage(paramName: string, body: any): string[] {
+    const usages: string[] = [];
+
+    const findUsageInNode = (node: any) => {
+      if (!node || typeof node !== 'object') return;
+
+      if (t.isIdentifier(node) && node.name === paramName) {
+        usages.push('referenced');
+      } else if (t.isMemberExpression(node) && t.isIdentifier(node.object) && node.object.name === paramName) {
+        if (t.isIdentifier(node.property)) {
+          usages.push(`property access: ${node.property.name}`);
+        }
+      } else if (t.isCallExpression(node) && t.isIdentifier(node.callee) && node.callee.name === paramName) {
+        usages.push('called as function');
+      } else if (t.isCallExpression(node) && t.isMemberExpression(node.callee) &&
+        t.isIdentifier(node.callee.object) && node.callee.object.name === paramName) {
+        if (t.isIdentifier(node.callee.property)) {
+          usages.push(`method call: ${node.callee.property.name}`);
+        }
+      }
+
+      // Recursively search in child nodes
+      for (const key in node) {
+        if (key !== 'parent' && node[key]) {
+          if (Array.isArray(node[key])) {
+            node[key].forEach(findUsageInNode);
+          } else if (typeof node[key] === 'object') {
+            findUsageInNode(node[key]);
+          }
+        }
+      }
+    };
+
+    findUsageInNode(body);
+    return [...new Set(usages)]; // Remove duplicates
+  }
+
+  private extractValueFromNode(node: any): string {
+    if (!node) return 'undefined';
+    if (t.isStringLiteral(node)) return `"${node.value}"`;
+    if (t.isNumericLiteral(node)) return String(node.value);
+    if (t.isBooleanLiteral(node)) return String(node.value);
+    if (t.isNullLiteral(node)) return 'null';
+    if (t.isIdentifier(node)) return node.name;
+    if (t.isBinaryExpression(node)) return `${this.extractValueFromNode(node.left)} ${node.operator} ${this.extractValueFromNode(node.right)}`;
+    if (t.isCallExpression(node) && t.isIdentifier(node.callee)) return `${node.callee.name}()`;
+    if (t.isMemberExpression(node) && t.isIdentifier(node.property)) return `${this.extractValueFromNode(node.object)}.${node.property.name}`;
+    return 'expression';
+  }
+
+  private inferTypeFromBinaryOp(operator: string): string {
+    if (['+', '-', '*', '/', '%', '**'].includes(operator)) return 'number';
+    if (['==', '===', '!=', '!==', '<', '>', '<=', '>='].includes(operator)) return 'boolean';
+    if (operator === '+') return 'string or number'; // Could be concatenation
     return 'unknown';
   }
 
-  private extractInitializerSummary(init: any): string {
-    if (!init) return 'undefined';
+  private analyzeInitializer(init: any): {
+    type: string;
+    value?: any;
+    inferredType: string;
+  } {
+    if (!init) return { type: 'undefined', inferredType: 'undefined' };
 
-    if (t.isStringLiteral(init)) return `string_literal:"${init.value}"`;
-    if (t.isNumericLiteral(init)) return `number_literal:${init.value}`;
-    if (t.isBooleanLiteral(init)) return `boolean_literal:${init.value}`;
-    if (t.isNullLiteral(init)) return 'null_literal';
+    if (t.isStringLiteral(init)) {
+      return { type: 'StringLiteral', value: init.value, inferredType: 'string' };
+    }
+    if (t.isNumericLiteral(init)) {
+      return { type: 'NumericLiteral', value: init.value, inferredType: 'number' };
+    }
+    if (t.isBooleanLiteral(init)) {
+      return { type: 'BooleanLiteral', value: init.value, inferredType: 'boolean' };
+    }
+    if (t.isNullLiteral(init)) {
+      return { type: 'NullLiteral', inferredType: 'null' };
+    }
     if (t.isArrayExpression(init)) {
-      // Try to determine array element types
-      const elementTypes = init.elements
-        .filter((el: any) => el !== null)
-        .map((el: any) => {
-          if (t.isStringLiteral(el)) return 'string';
-          if (t.isNumericLiteral(el)) return 'number';
-          if (t.isBooleanLiteral(el)) return 'boolean';
-          return 'unknown';
-        });
-      const uniqueTypes = [...new Set(elementTypes)];
-      return `array_literal:[${init.elements.length} elements, types: ${uniqueTypes.join('|')}]`;
+      const elementTypes = this.analyzeArrayElements(init.elements);
+      return {
+        type: 'ArrayExpression',
+        value: `[${init.elements.length} elements]`,
+        inferredType: elementTypes.length === 1 ? `${elementTypes[0]}[]` : 'any[]'
+      };
     }
     if (t.isObjectExpression(init)) {
-      // Extract object property types
-      const properties = init.properties
-        .filter((prop: any) => t.isObjectProperty(prop) && t.isIdentifier(prop.key))
-        .map((prop: any) => {
-          const key = prop.key.name;
-          let valueType = 'unknown';
-          if (t.isStringLiteral(prop.value)) valueType = 'string';
-          else if (t.isNumericLiteral(prop.value)) valueType = 'number';
-          else if (t.isBooleanLiteral(prop.value)) valueType = 'boolean';
-          return `${key}: ${valueType}`;
-        });
-      return `object_literal:{${properties.join(', ')}}`;
+      const properties = this.analyzeObjectProperties(init.properties);
+      return {
+        type: 'ObjectExpression',
+        value: properties,
+        inferredType: 'object'
+      };
     }
-    if (t.isFunctionExpression(init)) return 'function_expression';
-    if (t.isArrowFunctionExpression(init)) return 'arrow_function_expression';
     if (t.isNewExpression(init) && t.isIdentifier(init.callee)) {
-      return `new_${init.callee.name}()`;
+      return {
+        type: 'NewExpression',
+        value: init.callee.name,
+        inferredType: init.callee.name
+      };
     }
 
-    return 'unknown';
+    return { type: 'unknown', inferredType: 'any' };
   }
 
-  private extractExpressionSummary(expr: any): string {
-    if (t.isBinaryExpression(expr)) return `binary operation (${expr.operator})`;
-    if (t.isCallExpression(expr)) return 'function call';
-    if (t.isIdentifier(expr)) return `identifier: ${expr.name}`;
-    if (t.isLiteral(expr)) return 'literal value';
+  private analyzeArrayElements(elements: any[]): string[] {
+    const types: string[] = [];
+    elements.forEach(el => {
+      if (el && t.isStringLiteral(el)) types.push('string');
+      else if (el && t.isNumericLiteral(el)) types.push('number');
+      else if (el && t.isBooleanLiteral(el)) types.push('boolean');
+      else types.push('unknown');
+    });
+    return [...new Set(types)];
+  }
 
-    return 'expression';
+  private analyzeObjectProperties(properties: any[]): { [key: string]: string } {
+    const result: { [key: string]: string } = {};
+    properties.forEach(prop => {
+      if (t.isObjectProperty(prop) && t.isIdentifier(prop.key)) {
+        const key = prop.key.name;
+        if (t.isStringLiteral(prop.value)) result[key] = 'string';
+        else if (t.isNumericLiteral(prop.value)) result[key] = 'number';
+        else if (t.isBooleanLiteral(prop.value)) result[key] = 'boolean';
+        else result[key] = 'unknown';
+      }
+    });
+    return result;
   }
 
   async inferTypes(sourceCode: string): Promise<TypeInferenceResult[]> {
@@ -270,7 +529,7 @@ export class ASTTypeInference {
       console.warn(`Failed to write AST file: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    const prompt = `You are a static type inference assistant. Given an AST (Abstract Syntax Tree) representation of JavaScript code, infer precise TypeScript-style types.
+    const prompt = `You are a static type inference assistant. Given a detailed AST (Abstract Syntax Tree) representation of JavaScript code, infer precise TypeScript-style types.
 
 Analyze the following AST nodes extracted from JavaScript code:
 
@@ -278,7 +537,13 @@ Analyze the following AST nodes extracted from JavaScript code:
 ${JSON.stringify(astSummary, null, 2)}
 \`\`\`
 
-Based on the AST structure, parameter names, initialization values, and function bodies, infer the most appropriate TypeScript types.
+The AST contains rich information including:
+- Function bodies with return statements, variable usage patterns, and function calls
+- Parameter usage patterns showing how parameters are used within functions
+- Variable initializers with inferred types from literal values
+- Type hints derived from operations and expressions
+
+Use this detailed information to infer the most appropriate TypeScript types.
 
 Respond only with a JSON array using this exact schema for each identifier found:
 {
@@ -301,21 +566,27 @@ CRITICAL EXTRACTION REQUIREMENTS:
    - VariableDeclaration nodes → entity: "variable"  
    - ClassDeclaration nodes → entity: "class"
    - ClassMethod nodes → entity: "class-method"
+   - ArrowFunction nodes → entity: "function"
 
 3. For ClassMethod nodes:
    - MUST use entity: "class-method"
    - Keep the full "ClassName.methodName" format as name
-   - Include both params and return types
 
-4. TYPE INFERENCE RULES:
+4. TYPES OBJECT RULES:
+   - For classes: use "return": "ClassName" (the class name itself as the type)
+   - For variables: use "return": "inferredType" (no params field)
+   - For functions and class-methods: use both "params" and "return"
+   - ALWAYS include the "return" field in types object
+
+5. TYPE INFERENCE RULES:
    - Use specific TypeScript types: string, number, boolean, array, function, void, null, undefined
    - For object types, prefer interface/class names if they exist in the code
    - For arrays, use "type[]" notation
    - For class instances, use the class name as the type
-   - Consider identifier names for context clues to what the type might be
+   - Analyze return statements for accurate return types
+   - Use parameter usage patterns to infer parameter types
 
-
-5. Analyze initialization values and function bodies for accurate type inference:
+6. Analyze initialization values and function bodies for accurate type inference:
    - String literals → "string"
    - Number literals → "number" 
    - Boolean literals → "boolean"
@@ -323,12 +594,7 @@ CRITICAL EXTRACTION REQUIREMENTS:
    - Object expressions → object type or interface name if available
    - Class constructors → class name
 
-4. TYPES OBJECT RULES:
-   - For classes: use "return": "ClassName" (the class name itself)
-   - For variables: only use the "return" field in types
-   - For functions and class-methods: use both "params" and "return"
-
-NEVER return "undefined" as a type unless the value is explicitly undefined. Analyze the initialization values and usage patterns carefully.
+NEVER return "undefined" as a type unless the value is explicitly undefined. Always include a "return" field in the types object.
 
 Return only the JSON array, no markdown formatting or explanations.`;
 
@@ -337,7 +603,7 @@ Return only the JSON array, no markdown formatting or explanations.`;
         model: "gpt-3.5-turbo",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
-        max_tokens: 2000
+        max_tokens: 4000
       });
 
       const content = response.choices[0]?.message?.content?.trim();
@@ -388,37 +654,61 @@ Return only the JSON array, no markdown formatting or explanations.`;
 
       const { entity, name, location, types } = item;
 
+      // Validate entity
       if (!['function', 'variable', 'class', 'class-method'].includes(entity)) {
         throw new Error(`Invalid entity at index ${index}: must be 'function', 'variable', 'class', or 'class-method'`);
       }
 
+      // Validate name
       if (typeof name !== 'string') {
         throw new Error(`Invalid name at index ${index}: must be a string`);
       }
 
-      if (!location || typeof location !== 'object' ||
-        typeof location.line !== 'number' || typeof location.column !== 'number') {
-        throw new Error(`Invalid location at index ${index}: must be an object with line and column numbers`);
+      // Validate location (more lenient, with defaults)
+      let validLocation = { line: 1, column: 0 };
+      if (location && typeof location === 'object') {
+        validLocation = {
+          line: typeof location.line === 'number' ? location.line : 1,
+          column: typeof location.column === 'number' ? location.column : 0
+        };
       }
 
+      // Validate types
       if (!types || typeof types !== 'object') {
         throw new Error(`Invalid types at index ${index}: must be an object`);
       }
 
-      if (typeof types.return !== 'string') {
-        throw new Error(`Invalid return type at index ${index}: must be a string`);
+      // Handle return type based on entity
+      let returnType: string;
+      if (entity === 'class') {
+        // For classes, use the class name as the return type if not provided
+        returnType = typeof types.return === 'string' ? types.return : name;
+      } else {
+        // For other entities, require a return type
+        if (typeof types.return !== 'string') {
+          throw new Error(`Invalid return type at index ${index}: must be a string`);
+        }
+        returnType = types.return;
       }
+
+      // Handle params based on entity type
+      let params: { [key: string]: string } | undefined;
+      if (entity === 'function' || entity === 'class-method') {
+        if (types.params && typeof types.params === 'object') {
+          params = types.params;
+        } else {
+          params = {}; // Default to empty params for functions
+        }
+      }
+      // For variables and classes, params should not be included
 
       return {
         entity: entity as 'function' | 'variable' | 'class' | 'class-method',
         name,
-        location: {
-          line: location.line,
-          column: location.column
-        },
+        location: validLocation,
         types: {
-          ...(types.params && { params: types.params }),
-          return: types.return
+          ...(params !== undefined && { params }),
+          return: returnType
         }
       };
     });
