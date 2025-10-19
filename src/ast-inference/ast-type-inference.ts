@@ -14,10 +14,17 @@ export interface TypeInferenceResult {
     line: number;
     column: number;
   };
-  types: {
+  types?: {
     params?: { [paramName: string]: string };
     return: string;
   };
+  candidates?: Array<{
+    types: {
+      params?: { [paramName: string]: string };
+      return: string;
+    };
+    confidence?: number;
+  }>;
 }
 
 interface ASTNode {
@@ -500,6 +507,10 @@ export class ASTTypeInference {
   }
 
   async inferTypes(sourceCode: string): Promise<TypeInferenceResult[]> {
+    return this.inferTypesWithMultiplePredictions(sourceCode, 1);
+  }
+
+  async inferTypesWithMultiplePredictions(sourceCode: string, numPredictions: number = 5): Promise<TypeInferenceResult[]> {
     // Parse source code to AST
     const ast = this.parseSourceToAST(sourceCode);
 
@@ -529,7 +540,44 @@ export class ASTTypeInference {
       console.warn(`Failed to write AST file: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    const prompt = `You are a static type inference assistant. Given a detailed AST (Abstract Syntax Tree) representation of JavaScript code, infer precise TypeScript-style types.
+    const prompt = numPredictions === 1
+      ? this.createSinglePredictionPrompt(astSummary)
+      : this.createMultiplePredictionPrompt(astSummary, numPredictions);
+
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [{ role: "user", content: prompt }],
+        temperature: numPredictions > 1 ? 0.3 : 0.1,
+        max_tokens: 4000
+      });
+
+      const content = response.choices[0]?.message?.content?.trim();
+
+      if (!content) {
+        throw new Error('No response content from OpenAI');
+      }
+
+      // Try to parse the JSON response
+      try {
+        const parsed = JSON.parse(content);
+        return this.validateResponse(parsed, numPredictions > 1);
+      } catch (parseError) {
+        // If parsing fails, try to extract JSON from markdown blocks
+        const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[1]);
+          return this.validateResponse(parsed, numPredictions > 1);
+        }
+        throw new Error(`Failed to parse JSON response: ${content}`);
+      }
+    } catch (error) {
+      throw new Error(`OpenAI API error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private createSinglePredictionPrompt(astSummary: any[]): string {
+    return `You are a static type inference assistant. Given a detailed AST (Abstract Syntax Tree) representation of JavaScript code, infer precise TypeScript-style types.
 
 Analyze the following AST nodes extracted from JavaScript code:
 
@@ -561,73 +609,50 @@ Respond only with a JSON array using this exact schema for each identifier found
 
 CRITICAL EXTRACTION REQUIREMENTS:
 1. MUST include ALL nodes from the AST analysis above
-2. Use correct entity types:
-   - FunctionDeclaration nodes → entity: "function"
-   - VariableDeclaration nodes → entity: "variable"  
-   - ClassDeclaration nodes → entity: "class"
-   - ClassMethod nodes → entity: "class-method"
-   - ArrowFunction nodes → entity: "function"
-
-3. For ClassMethod nodes:
-   - MUST use entity: "class-method"
-   - Keep the full "ClassName.methodName" format as name
-
-4. TYPES OBJECT RULES:
-   - For classes: use "return": "ClassName" (the class name itself as the type)
-   - For variables: use "return": "inferredType" (no params field)
-   - For functions and class-methods: use both "params" and "return"
-   - ALWAYS include the "return" field in types object
-
-5. TYPE INFERENCE RULES:
-   - Use specific TypeScript types: string, number, boolean, array, function, void, null, undefined
-   - For object types, prefer interface/class names if they exist in the code
-   - For arrays, use "type[]" notation
-   - For class instances, use the class name as the type
-   - Analyze return statements for accurate return types
-   - Use parameter usage patterns to infer parameter types
-
-6. Analyze initialization values and function bodies for accurate type inference:
-   - String literals → "string"
-   - Number literals → "number" 
-   - Boolean literals → "boolean"
-   - Array expressions → appropriate array type (e.g., "string[]", "number[]")
-   - Object expressions → object type or interface name if available
-   - Class constructors → class name
-
-NEVER return "undefined" as a type unless the value is explicitly undefined. Always include a "return" field in the types object.
+2. Use correct entity types based on AST node types
+3. For ClassMethod nodes: use entity "class-method" with "ClassName.methodName" format
+4. TYPES OBJECT RULES: Always include "return" field, include "params" for functions/methods
+5. TYPE INFERENCE RULES: Use specific TypeScript types, analyze AST context for accuracy
 
 Return only the JSON array, no markdown formatting or explanations.`;
+  }
 
-    try {
-      const response = await this.openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        max_tokens: 4000
-      });
+  private createMultiplePredictionPrompt(astSummary: any[], numPredictions: number): string {
+    return `You are a static type inference assistant. Given detailed AST representation of JavaScript code, provide multiple ranked type predictions with confidence scores.
 
-      const content = response.choices[0]?.message?.content?.trim();
+Analyze the following AST nodes:
 
-      if (!content) {
-        throw new Error('No response content from OpenAI');
-      }
+\`\`\`json
+${JSON.stringify(astSummary, null, 2)}
+\`\`\`
 
-      // Try to parse the JSON response
-      try {
-        const parsed = JSON.parse(content);
-        return this.validateResponse(parsed);
-      } catch (parseError) {
-        // If parsing fails, try to extract JSON from markdown blocks
-        const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[1]);
-          return this.validateResponse(parsed);
-        }
-        throw new Error(`Failed to parse JSON response: ${content}`);
-      }
-    } catch (error) {
-      throw new Error(`OpenAI API error: ${error instanceof Error ? error.message : String(error)}`);
+For each identifier, provide ${numPredictions} ranked type predictions. Respond with a JSON array using this schema:
+{
+  "entity": "function|variable|class|class-method",
+  "name": "identifier_name",
+  "location": {
+    "line": line_number,
+    "column": column_number
+  },
+  "candidates": [
+    {
+      "types": {
+        "params": { "paramName": "type" },
+        "return": "type"
+      },
+      "confidence": 0.9
     }
+  ]
+}
+
+REQUIREMENTS:
+1. Include ALL nodes from AST analysis
+2. Provide exactly ${numPredictions} candidates per identifier, ordered by confidence
+3. Confidence scores between 0.0-1.0
+4. Use AST context (return statements, usage patterns, initializers) for accurate inference
+5. For functions/methods: include "params", for variables/classes: omit "params"
+
+Return only the JSON array, no explanations.`;
   }
 
   async inferTypesFromFile(filePath: string): Promise<TypeInferenceResult[]> {
@@ -642,7 +667,7 @@ Return only the JSON array, no markdown formatting or explanations.`;
     }
   }
 
-  private validateResponse(data: any): TypeInferenceResult[] {
+  private validateResponse(data: any, isMultiPrediction: boolean = false): TypeInferenceResult[] {
     if (!Array.isArray(data)) {
       throw new Error('Response must be an array');
     }
@@ -652,7 +677,7 @@ Return only the JSON array, no markdown formatting or explanations.`;
         throw new Error(`Invalid item at index ${index}: must be an object`);
       }
 
-      const { entity, name, location, types } = item;
+      const { entity, name, location, types, candidates } = item;
 
       // Validate entity
       if (!['function', 'variable', 'class', 'class-method'].includes(entity)) {
@@ -673,44 +698,90 @@ Return only the JSON array, no markdown formatting or explanations.`;
         };
       }
 
-      // Validate types
-      if (!types || typeof types !== 'object') {
-        throw new Error(`Invalid types at index ${index}: must be an object`);
-      }
-
-      // Handle return type based on entity
-      let returnType: string;
-      if (entity === 'class') {
-        // For classes, use the class name as the return type if not provided
-        returnType = typeof types.return === 'string' ? types.return : name;
-      } else {
-        // For other entities, require a return type
-        if (typeof types.return !== 'string') {
-          throw new Error(`Invalid return type at index ${index}: must be a string`);
-        }
-        returnType = types.return;
-      }
-
-      // Handle params based on entity type
-      let params: { [key: string]: string } | undefined;
-      if (entity === 'function' || entity === 'class-method') {
-        if (types.params && typeof types.params === 'object') {
-          params = types.params;
-        } else {
-          params = {}; // Default to empty params for functions
-        }
-      }
-      // For variables and classes, params should not be included
-
-      return {
+      const result: TypeInferenceResult = {
         entity: entity as 'function' | 'variable' | 'class' | 'class-method',
         name,
-        location: validLocation,
-        types: {
+        location: validLocation
+      };
+
+      if (isMultiPrediction && candidates) {
+        // Validate candidates for multi-prediction
+        if (!Array.isArray(candidates)) {
+          throw new Error(`Invalid candidates at index ${index}: must be an array`);
+        }
+
+        result.candidates = candidates.map((candidate, candIndex) => {
+          if (!candidate || typeof candidate !== 'object') {
+            throw new Error(`Invalid candidate at index ${index}, candidate ${candIndex}: must be an object`);
+          }
+
+          if (!candidate.types || typeof candidate.types !== 'object') {
+            throw new Error(`Invalid candidate types at index ${index}, candidate ${candIndex}: must be an object`);
+          }
+
+          // Handle return type based on entity
+          let returnType: string;
+          if (entity === 'class') {
+            returnType = typeof candidate.types.return === 'string' ? candidate.types.return : name;
+          } else {
+            if (typeof candidate.types.return !== 'string') {
+              throw new Error(`Invalid candidate return type at index ${index}, candidate ${candIndex}: must be a string`);
+            }
+            returnType = candidate.types.return;
+          }
+
+          // Handle params based on entity type
+          let params: { [key: string]: string } | undefined;
+          if (entity === 'function' || entity === 'class-method') {
+            if (candidate.types.params && typeof candidate.types.params === 'object') {
+              params = candidate.types.params;
+            } else {
+              params = {}; // Default to empty params for functions
+            }
+          }
+
+          return {
+            types: {
+              ...(params !== undefined && { params }),
+              return: returnType
+            },
+            confidence: typeof candidate.confidence === 'number' ? candidate.confidence : 1.0
+          };
+        });
+      } else {
+        // Single prediction case
+        if (!types || typeof types !== 'object') {
+          throw new Error(`Invalid types at index ${index}: must be an object`);
+        }
+
+        // Handle return type based on entity
+        let returnType: string;
+        if (entity === 'class') {
+          returnType = typeof types.return === 'string' ? types.return : name;
+        } else {
+          if (typeof types.return !== 'string') {
+            throw new Error(`Invalid return type at index ${index}: must be a string`);
+          }
+          returnType = types.return;
+        }
+
+        // Handle params based on entity type
+        let params: { [key: string]: string } | undefined;
+        if (entity === 'function' || entity === 'class-method') {
+          if (types.params && typeof types.params === 'object') {
+            params = types.params;
+          } else {
+            params = {}; // Default to empty params for functions
+          }
+        }
+
+        result.types = {
           ...(params !== undefined && { params }),
           return: returnType
-        }
-      };
+        };
+      }
+
+      return result;
     });
   }
 }
