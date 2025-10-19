@@ -7,7 +7,9 @@
         "build": "tsc",
         "infer": "ts-node src/basic-inference/infer.ts",
         "ast-infer": "ts-node src/ast-inference/ast-infer.ts",
-        "compare": "ts-node src/compare.ts"
+        "compare": "ts-node src/compare.ts",
+        "pipeline": "ts-node src/pipeline/comparison-pipeline.ts",
+        "run-pipeline": "ts-node src/pipeline/run-pipeline.ts"
     },
     "dependencies": {
         "openai": "^4.20.0",

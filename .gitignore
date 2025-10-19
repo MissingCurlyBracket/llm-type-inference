@@ -140,3 +140,9 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Pipeline-specific ignores
+temp-typescript-repo/
+pipeline-results/
+*.temp.js
+ast-infer/

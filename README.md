@@ -7,6 +7,7 @@ A TypeScript-based JavaScript to TypeScript type inference tool using OpenAI's l
 - **Two Inference Approaches**:
   1. **Traditional**: Direct source code analysis
   2. **AST-based**: Parse to Abstract Syntax Tree first, then analyze structure
+- **Automated Comparison Pipeline**: Test approaches on real-world TypeScript repositories
 - **TypeScript Implementation**: Fully typed codebase with proper error handling
 - **CLI Interface**: Multiple ways to run and compare approaches
 - **JSON Output**: Consistent format for both approaches
@@ -44,6 +45,18 @@ Run both approaches on a TypeScript file and evaluate against ground truth:
 npm run compare test-samples/simple.ts
 npm run compare test-samples/complex.ts
 ```
+
+### Automated Comparison Pipeline
+Run large-scale comparison on real TypeScript repositories:
+```bash
+# Quick test with 5 files from TypeScript repository
+npm run run-pipeline
+
+# Advanced usage with custom settings
+npm run pipeline -- --files 20 --min-size 1000 --max-size 8000
+```
+
+For detailed pipeline documentation, see [PIPELINE.md](PIPELINE.md).
 
 This will:
 1. Extract type annotations from the TypeScript file as ground truth
@@ -146,9 +159,17 @@ npm run compare sample.js
 
 ```
 src/
-├── type-inference.ts      # Traditional approach
-├── ast-type-inference.ts  # AST-based approach  
-├── infer.ts              # CLI for traditional approach
-├── ast-infer.ts          # CLI for AST approach
-└── compare.ts            # Compare both approaches
+├── basic-inference/
+│   ├── type-inference.ts      # Traditional approach
+│   └── infer.ts              # CLI for traditional approach
+├── ast-inference/
+│   ├── ast-type-inference.ts  # AST-based approach  
+│   └── ast-infer.ts          # CLI for AST approach
+├── evaluation/
+│   ├── typescript-parser.ts   # Ground truth extraction
+│   └── evaluation-metrics.ts  # Metrics calculation
+├── pipeline/
+│   ├── comparison-pipeline.ts # Automated comparison pipeline
+│   └── run-pipeline.ts       # Quick pipeline runner
+└── compare.ts                # Compare both approaches on single files
 ```
