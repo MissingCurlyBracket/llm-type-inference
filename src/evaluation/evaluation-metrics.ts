@@ -2,6 +2,7 @@ import { GroundTruthType } from './typescript-parser';
 
 export interface EvaluationMetrics {
     accuracy: number;
+    mrr: number;
     totalPredictions: number;
     correctPredictions: number;
 }
@@ -17,27 +18,63 @@ export interface DetailedComparison {
 export class MetricsCalculator {
     /**
      * Calculate evaluation metrics comparing predictions with ground truth
+     * Accuracy is based on the first (most confident) prediction
+     * MRR (Mean Reciprocal Rank) is calculated as 1/r where r is the rank of the correct answer
      */
     static calculateMetrics(predicted: any[], groundTruth: GroundTruthType[]): EvaluationMetrics {
         let correctPredictions = 0;
+        let totalReciprocalRank = 0;
+        let itemsWithMatch = 0;
 
         // Create maps for easier comparison
         const predictedMap = new Map(predicted.map(p => [p.name, p]));
         const groundTruthMap = new Map(groundTruth.map(gt => [gt.name, gt]));
 
-        // Calculate correct predictions
+        // Calculate correct predictions (using first type) and MRR
         for (const [name, pred] of predictedMap) {
             const gt = groundTruthMap.get(name);
-            if (gt && this.typesMatch(pred.types, gt.types)) {
-                correctPredictions++;
+            if (gt) {
+                // Check if return is an array (new format with 5 predictions)
+                if (Array.isArray(pred.types.return)) {
+                    // Accuracy: check if first prediction matches
+                    const firstPrediction = {
+                        ...pred.types,
+                        return: pred.types.return[0]
+                    };
+                    if (this.typesMatch(firstPrediction, gt.types)) {
+                        correctPredictions++;
+                    }
+
+                    // MRR: find the rank of the correct answer
+                    for (let i = 0; i < pred.types.return.length; i++) {
+                        const candidatePrediction = {
+                            ...pred.types,
+                            return: pred.types.return[i]
+                        };
+                        if (this.typesMatch(candidatePrediction, gt.types)) {
+                            totalReciprocalRank += 1 / (i + 1); // rank is 1-indexed
+                            itemsWithMatch++;
+                            break; // Found the match, stop searching
+                        }
+                    }
+                } else {
+                    // Old format with single prediction
+                    if (this.typesMatch(pred.types, gt.types)) {
+                        correctPredictions++;
+                        totalReciprocalRank += 1; // rank 1 for single prediction
+                        itemsWithMatch++;
+                    }
+                }
             }
         }
 
         const totalPredictions = predicted.length;
-        const accuracy = correctPredictions / totalPredictions || 0;
+        const accuracy = totalPredictions > 0 ? correctPredictions / totalPredictions : 0;
+        const mrr = itemsWithMatch > 0 ? totalReciprocalRank / totalPredictions : 0;
 
         return {
             accuracy,
+            mrr,
             totalPredictions,
             correctPredictions
         };

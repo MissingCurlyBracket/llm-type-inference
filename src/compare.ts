@@ -94,6 +94,7 @@ async function main(): Promise<void> {
                 console.log('\n5. Approach Comparison:');
                 console.log('='.repeat(40));
                 console.log(`Better Accuracy: ${traditionalMetrics.accuracy > astMetrics.accuracy ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.accuracy, astMetrics.accuracy).toFixed(3)} vs ${Math.min(traditionalMetrics.accuracy, astMetrics.accuracy).toFixed(3)})`);
+                console.log(`Better MRR: ${traditionalMetrics.mrr > astMetrics.mrr ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.mrr, astMetrics.mrr).toFixed(3)} vs ${Math.min(traditionalMetrics.mrr, astMetrics.mrr).toFixed(3)})`);
                 
                 // Detailed analysis for traditional approach
                 if (traditionalResults.length > 0) {
@@ -134,6 +135,7 @@ async function main(): Promise<void> {
 
 function printMetrics(approach: string, metrics: any): void {
     console.log(`  Accuracy: ${(metrics.accuracy * 100).toFixed(1)}%`);
+    console.log(`  MRR: ${metrics.mrr.toFixed(3)}`);
     console.log(`  Correct: ${metrics.correctPredictions}/${metrics.totalPredictions}`);
 }
 
