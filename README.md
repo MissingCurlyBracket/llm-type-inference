@@ -254,6 +254,5 @@ src/
 │   ├── comparison-pipeline.ts # Automated comparison pipeline
 │   └── run-pipeline.ts       # Quick pipeline runner
 ├── provider-config.ts         # Provider configuration helper
-├── example-provider-usage.ts  # Example showing both providers
 └── compare.ts                # Compare both approaches on single files
 ```
