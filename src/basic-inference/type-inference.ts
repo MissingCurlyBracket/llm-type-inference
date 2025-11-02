@@ -15,6 +15,11 @@ export interface TypeInferenceResult {
     };
 }
 
+export interface TypeInferenceResponse {
+    results: TypeInferenceResult[];
+    promptTokens: number;
+}
+
 export class TypeInference {
     private llmProvider: LLMProvider;
 
@@ -26,7 +31,7 @@ export class TypeInference {
         }
     }
 
-    async inferTypes(sourceCode: string): Promise<TypeInferenceResult[]> {
+    async inferTypes(sourceCode: string): Promise<TypeInferenceResponse> {
         const prompt = `You are a static type inference assistant. Given JavaScript code, infer precise TypeScript-style types.
 
 Analyze the following JavaScript code:
@@ -96,7 +101,11 @@ Return only the JSON array, no markdown formatting or explanations.`;
             // Try to parse the JSON response
             try {
                 const parsed = OpenAIProvider.parseJSONResponse(content);
-                return this.validateResponse(parsed);
+                const results = this.validateResponse(parsed);
+                return {
+                    results,
+                    promptTokens: response.usage?.promptTokens || 0
+                };
             } catch (parseError) {
                 throw new Error(`Failed to parse JSON response: ${content}`);
             }
@@ -105,7 +114,7 @@ Return only the JSON array, no markdown formatting or explanations.`;
         }
     }
 
-    async inferTypesFromFile(filePath: string): Promise<TypeInferenceResult[]> {
+    async inferTypesFromFile(filePath: string): Promise<TypeInferenceResponse> {
         try {
             const sourceCode = fs.readFileSync(filePath, 'utf8');
             return await this.inferTypes(sourceCode);

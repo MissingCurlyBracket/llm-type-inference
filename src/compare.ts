@@ -55,16 +55,19 @@ async function main(): Promise<void> {
             
             let traditionalResults: any[] = [];
             let traditionalMetrics: any = null;
+            let traditionalPromptTokens: number = 0;
             
             try {
                 const traditionalInference = new TypeInference();
-                traditionalResults = await traditionalInference.inferTypesFromFile(tempJsFile);
+                const response = await traditionalInference.inferTypesFromFile(tempJsFile);
+                traditionalResults = response.results;
+                traditionalPromptTokens = response.promptTokens;
                 traditionalMetrics = MetricsCalculator.calculateMetrics(traditionalResults, groundTruth);
                 
                 console.log('Results:');
                 console.log(JSON.stringify(traditionalResults, null, 2));
                 console.log(`\nMetrics:`);
-                printMetrics('Traditional', traditionalMetrics);
+                printMetrics('Traditional', traditionalMetrics, traditionalPromptTokens);
             } catch (error) {
                 console.error('Traditional approach failed:', error instanceof Error ? error.message : String(error));
             }
@@ -75,16 +78,19 @@ async function main(): Promise<void> {
             
             let astResults: any[] = [];
             let astMetrics: any = null;
+            let astPromptTokens: number = 0;
             
             try {
                 const astInference = new ASTTypeInference();
-                astResults = await astInference.inferTypesFromFile(tempJsFile);
+                const response = await astInference.inferTypesFromFile(tempJsFile);
+                astResults = response.results;
+                astPromptTokens = response.promptTokens;
                 astMetrics = MetricsCalculator.calculateMetrics(astResults, groundTruth);
                 
                 console.log('Results:');
                 console.log(JSON.stringify(astResults, null, 2));
                 console.log(`\nMetrics:`);
-                printMetrics('AST', astMetrics);
+                printMetrics('AST', astMetrics, astPromptTokens);
             } catch (error) {
                 console.error('AST approach failed:', error instanceof Error ? error.message : String(error));
             }
@@ -96,6 +102,9 @@ async function main(): Promise<void> {
                 console.log(`Better Accuracy: ${traditionalMetrics.accuracy > astMetrics.accuracy ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.accuracy, astMetrics.accuracy).toFixed(3)} vs ${Math.min(traditionalMetrics.accuracy, astMetrics.accuracy).toFixed(3)})`);
                 console.log(`Better MRR: ${traditionalMetrics.mrr > astMetrics.mrr ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.mrr, astMetrics.mrr).toFixed(3)} vs ${Math.min(traditionalMetrics.mrr, astMetrics.mrr).toFixed(3)})`);
                 
+                if (traditionalPromptTokens > 0 && astPromptTokens > 0) {
+                    console.log(`Prompt Tokens: Traditional ${traditionalPromptTokens.toLocaleString()} vs AST ${astPromptTokens.toLocaleString()} (${traditionalPromptTokens > astPromptTokens ? 'AST' : 'Traditional'} more efficient)`);
+                }
                 // Detailed analysis for traditional approach
                 if (traditionalResults.length > 0) {
                     console.log('\n6. Traditional Approach - Detailed Analysis:');
@@ -133,10 +142,13 @@ async function main(): Promise<void> {
     }
 }
 
-function printMetrics(approach: string, metrics: any): void {
+function printMetrics(approach: string, metrics: any, promptTokens?: number): void {
     console.log(`  Accuracy: ${(metrics.accuracy * 100).toFixed(1)}%`);
     console.log(`  MRR: ${metrics.mrr.toFixed(3)}`);
     console.log(`  Correct: ${metrics.correctPredictions}/${metrics.totalPredictions}`);
+    if (promptTokens !== undefined && promptTokens > 0) {
+        console.log(`  Prompt tokens: ${promptTokens.toLocaleString()}`);
+    }
 }
 
 function printDetailedComparison(comparison: any[]): void {

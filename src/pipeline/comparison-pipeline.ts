@@ -23,10 +23,12 @@ interface ComparisonResult {
     filePath: string;
     fileSize: number;
     groundTruthCount: number;
-    traditionalMetrics: any;
-    astMetrics: any;
-    error?: string;
+    traditionalMetrics?: any;
+    astMetrics?: any;
+    traditionalPromptTokens?: number;
+    astPromptTokens?: number;
     duration: number;
+    error?: string;
 }
 
 interface PipelineResults {
@@ -40,12 +42,14 @@ interface PipelineResults {
             averageMRR: number;
             totalCorrect: number;
             totalPredictions: number;
+            totalPromptTokens: number;
         };
         ast: {
             averageAccuracy: number;
             averageMRR: number;
             totalCorrect: number;
             totalPredictions: number;
+            totalPromptTokens: number;
         };
     };
 }
@@ -294,12 +298,18 @@ export class ComparisonPipeline {
 
         let traditionalMetrics: any = null;
         let astMetrics: any = null;
+        let traditionalResults: any[] = [];
+        let astResults: any[] = [];
+        let traditionalPromptTokens: number = 0;
+        let astPromptTokens: number = 0;
 
         try {
             // Run traditional approach
             try {
                 const traditionalInference = new TypeInference();
-                const traditionalResults = await traditionalInference.inferTypesFromFile(tempJsFile);
+                const traditionalResponse = await traditionalInference.inferTypesFromFile(tempJsFile);
+                traditionalResults = traditionalResponse.results;
+                traditionalPromptTokens = traditionalResponse.promptTokens;
                 traditionalMetrics = MetricsCalculator.calculateMetrics(traditionalResults, groundTruth);
             } catch (error) {
                 console.log(`  Traditional approach failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -308,7 +318,9 @@ export class ComparisonPipeline {
             // Run AST approach
             try {
                 const astInference = new ASTTypeInference();
-                const astResults = await astInference.inferTypesFromFile(tempJsFile);
+                const astResponse = await astInference.inferTypesFromFile(tempJsFile);
+                astResults = astResponse.results;
+                astPromptTokens = astResponse.promptTokens;
                 astMetrics = MetricsCalculator.calculateMetrics(astResults, groundTruth);
             } catch (error) {
                 console.log(`  AST approach failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -331,7 +343,9 @@ export class ComparisonPipeline {
                 fileSize,
                 groundTruthCount: groundTruth.length,
                 traditionalMetrics,
-                astMetrics
+                astMetrics,
+                traditionalPromptTokens,
+                astPromptTokens
             };
 
         } finally {
@@ -351,8 +365,14 @@ export class ComparisonPipeline {
         const traditionalResults = successful.filter(r => r.traditionalMetrics);
         const astResults = successful.filter(r => r.astMetrics);
 
-        const traditionalStats = this.calculateAggregateMetrics(traditionalResults.map(r => r.traditionalMetrics));
-        const astStats = this.calculateAggregateMetrics(astResults.map(r => r.astMetrics));
+        const traditionalStats = this.calculateAggregateMetrics(
+            traditionalResults.map(r => r.traditionalMetrics),
+            traditionalResults.map(r => r.traditionalPromptTokens || 0)
+        );
+        const astStats = this.calculateAggregateMetrics(
+            astResults.map(r => r.astMetrics),
+            astResults.map(r => r.astPromptTokens || 0)
+        );
 
         const pipelineResults: PipelineResults = {
             totalFiles: results.length,
@@ -370,9 +390,24 @@ export class ComparisonPipeline {
         return pipelineResults;
     }
 
-    private calculateAggregateMetrics(metrics: any[]): { averageAccuracy: number; averageMRR: number; totalCorrect: number; totalPredictions: number } {
+    private calculateAggregateMetrics(
+        metrics: any[], 
+        promptTokens: number[]
+    ): { 
+        averageAccuracy: number; 
+        averageMRR: number; 
+        totalCorrect: number; 
+        totalPredictions: number;
+        totalPromptTokens: number;
+    } {
         if (metrics.length === 0) {
-            return { averageAccuracy: 0, averageMRR: 0, totalCorrect: 0, totalPredictions: 0 };
+            return { 
+                averageAccuracy: 0, 
+                averageMRR: 0, 
+                totalCorrect: 0, 
+                totalPredictions: 0,
+                totalPromptTokens: 0
+            };
         }
 
         const totalCorrect = metrics.reduce((sum, m) => sum + m.correctPredictions, 0);
@@ -382,11 +417,15 @@ export class ComparisonPipeline {
         const totalMRR = metrics.reduce((sum, m) => sum + (m.mrr || 0), 0);
         const averageMRR = metrics.length > 0 ? totalMRR / metrics.length : 0;
 
+        // Calculate prompt token totals
+        const totalPromptTokens = promptTokens.reduce((sum, t) => sum + t, 0);
+
         return {
             averageAccuracy,
             averageMRR,
             totalCorrect,
-            totalPredictions
+            totalPredictions,
+            totalPromptTokens
         };
     }
 
@@ -402,6 +441,7 @@ export class ComparisonPipeline {
             console.log(`  Average accuracy: ${(results.aggregateMetrics.traditional.averageAccuracy * 100).toFixed(1)}%`);
             console.log(`  Average MRR: ${results.aggregateMetrics.traditional.averageMRR.toFixed(3)}`);
             console.log(`  Total correct: ${results.aggregateMetrics.traditional.totalCorrect}/${results.aggregateMetrics.traditional.totalPredictions}`);
+            console.log(`  Prompt tokens: ${results.aggregateMetrics.traditional.totalPromptTokens.toLocaleString()}`);
         }
 
         if (results.aggregateMetrics.ast.totalPredictions > 0) {
@@ -409,6 +449,7 @@ export class ComparisonPipeline {
             console.log(`  Average accuracy: ${(results.aggregateMetrics.ast.averageAccuracy * 100).toFixed(1)}%`);
             console.log(`  Average MRR: ${results.aggregateMetrics.ast.averageMRR.toFixed(3)}`);
             console.log(`  Total correct: ${results.aggregateMetrics.ast.totalCorrect}/${results.aggregateMetrics.ast.totalPredictions}`);
+            console.log(`  Prompt tokens: ${results.aggregateMetrics.ast.totalPromptTokens.toLocaleString()}`);
         }
 
         if (results.aggregateMetrics.traditional.totalPredictions > 0 && results.aggregateMetrics.ast.totalPredictions > 0) {
@@ -425,6 +466,15 @@ export class ComparisonPipeline {
 
             console.log(`\n🏆 Winner (Accuracy): ${accWinner} approach (${accDifference.toFixed(1)}% better)`);
             console.log(`🏆 Winner (MRR): ${mrrWinner} approach (${mrrDifference.toFixed(3)} better)`);
+            
+            // Prompt token comparison
+            const traditionalTokens = results.aggregateMetrics.traditional.totalPromptTokens;
+            const astTokens = results.aggregateMetrics.ast.totalPromptTokens;
+            const tokenDiff = Math.abs(traditionalTokens - astTokens);
+            const tokenPercentDiff = ((tokenDiff / Math.max(traditionalTokens, astTokens)) * 100).toFixed(1);
+            const moreEfficientApproach = traditionalTokens < astTokens ? 'Traditional' : 'AST';
+            
+            console.log(`\n💰 Prompt Token Efficiency: ${moreEfficientApproach} approach uses ${tokenDiff.toLocaleString()} fewer prompt tokens (${tokenPercentDiff}% less)`);
         }
     }
 
@@ -465,14 +515,16 @@ export class ComparisonPipeline {
             report += `### Traditional Approach\n`;
             report += `- Average accuracy: ${(results.aggregateMetrics.traditional.averageAccuracy * 100).toFixed(1)}%\n`;
             report += `- Average MRR: ${results.aggregateMetrics.traditional.averageMRR.toFixed(3)}\n`;
-            report += `- Total correct: ${results.aggregateMetrics.traditional.totalCorrect}/${results.aggregateMetrics.traditional.totalPredictions}\n\n`;
+            report += `- Total correct: ${results.aggregateMetrics.traditional.totalCorrect}/${results.aggregateMetrics.traditional.totalPredictions}\n`;
+            report += `- Prompt tokens: ${results.aggregateMetrics.traditional.totalPromptTokens.toLocaleString()}\n\n`;
         }
 
         if (results.aggregateMetrics.ast.totalPredictions > 0) {
             report += `### AST Approach\n`;
             report += `- Average accuracy: ${(results.aggregateMetrics.ast.averageAccuracy * 100).toFixed(1)}%\n`;
             report += `- Average MRR: ${results.aggregateMetrics.ast.averageMRR.toFixed(3)}\n`;
-            report += `- Total correct: ${results.aggregateMetrics.ast.totalCorrect}/${results.aggregateMetrics.ast.totalPredictions}\n\n`;
+            report += `- Total correct: ${results.aggregateMetrics.ast.totalCorrect}/${results.aggregateMetrics.ast.totalPredictions}\n`;
+            report += `- Prompt tokens: ${results.aggregateMetrics.ast.totalPromptTokens.toLocaleString()}\n\n`;
         }
 
         report += `## Individual Results\n\n`;
@@ -488,11 +540,19 @@ export class ComparisonPipeline {
                 report += `- Ground truth: ${result.groundTruthCount} identifiers\n`;
 
                 if (result.traditionalMetrics) {
-                    report += `- Traditional: ${(result.traditionalMetrics.accuracy * 100).toFixed(1)}% accuracy, ${result.traditionalMetrics.mrr.toFixed(3)} MRR (${result.traditionalMetrics.correctPredictions}/${result.traditionalMetrics.totalPredictions})\n`;
+                    report += `- Traditional: ${(result.traditionalMetrics.accuracy * 100).toFixed(1)}% accuracy, ${result.traditionalMetrics.mrr.toFixed(3)} MRR (${result.traditionalMetrics.correctPredictions}/${result.traditionalMetrics.totalPredictions})`;
+                    if (result.traditionalPromptTokens) {
+                        report += ` - ${result.traditionalPromptTokens.toLocaleString()} prompt tokens`;
+                    }
+                    report += `\n`;
                 }
 
                 if (result.astMetrics) {
-                    report += `- AST: ${(result.astMetrics.accuracy * 100).toFixed(1)}% accuracy, ${result.astMetrics.mrr.toFixed(3)} MRR (${result.astMetrics.correctPredictions}/${result.astMetrics.totalPredictions})\n`;
+                    report += `- AST: ${(result.astMetrics.accuracy * 100).toFixed(1)}% accuracy, ${result.astMetrics.mrr.toFixed(3)} MRR (${result.astMetrics.correctPredictions}/${result.astMetrics.totalPredictions})`;
+                    if (result.astPromptTokens) {
+                        report += ` - ${result.astPromptTokens.toLocaleString()} prompt tokens`;
+                    }
+                    report += `\n`;
                 }
             }
 

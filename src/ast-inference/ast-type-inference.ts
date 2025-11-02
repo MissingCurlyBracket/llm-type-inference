@@ -18,6 +18,11 @@ export interface TypeInferenceResult {
   };
 }
 
+export interface TypeInferenceResponse {
+    results: TypeInferenceResult[];
+    promptTokens: number;
+}
+
 interface ASTNode {
   type: string;
   name: string;
@@ -496,7 +501,7 @@ export class ASTTypeInference {
     return result;
   }
 
-  async inferTypes(sourceCode: string): Promise<TypeInferenceResult[]> {
+  async inferTypes(sourceCode: string): Promise<TypeInferenceResponse> {
     // Parse source code to AST
     const ast = this.parseSourceToAST(sourceCode);
 
@@ -610,13 +615,21 @@ Return only the JSON array, no markdown formatting or explanations.`;
       // Try to parse the JSON response
       try {
         const parsed = JSON.parse(response.content);
-        return this.validateResponse(parsed);
+        const results = this.validateResponse(parsed);
+        return {
+          results,
+          promptTokens: response.usage?.promptTokens || 0
+        };
       } catch (parseError) {
         // If parsing fails, try to extract JSON from markdown blocks
         const jsonMatch = response.content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[1]);
-          return this.validateResponse(parsed);
+          const results = this.validateResponse(parsed);
+          return {
+            results,
+            promptTokens: response.usage?.promptTokens || 0
+          };
         }
         throw new Error(`Failed to parse JSON response: ${response.content}`);
       }
@@ -625,7 +638,7 @@ Return only the JSON array, no markdown formatting or explanations.`;
     }
   }
 
-  async inferTypesFromFile(filePath: string): Promise<TypeInferenceResult[]> {
+  async inferTypesFromFile(filePath: string): Promise<TypeInferenceResponse> {
     try {
       const sourceCode = fs.readFileSync(filePath, 'utf8');
       return await this.inferTypes(sourceCode);
