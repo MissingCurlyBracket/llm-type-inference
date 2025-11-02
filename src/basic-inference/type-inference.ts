@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import { LLMProvider, LLMProviderFactory, LLMConfig } from '../llm/llm-provider';
-import { OpenAIProvider } from '../llm/openai-provider';
 
 export interface TypeInferenceResult {
     entity: 'function' | 'variable' | 'class' | 'class-method';
@@ -23,8 +22,8 @@ export interface TypeInferenceResponse {
 export class TypeInference {
     private llmProvider: LLMProvider;
 
-    constructor(llmConfig?: LLMConfig) {
-        this.llmProvider = LLMProviderFactory.getProvider('openai', llmConfig);
+    constructor(llmConfig?: LLMConfig, providerType: 'openai' | 'qwen' = 'openai') {
+        this.llmProvider = LLMProviderFactory.getProvider(providerType, llmConfig);
 
         if (!this.llmProvider.validateConfiguration()) {
             throw new Error('LLM provider configuration is invalid. Check your API key and settings.');
@@ -100,7 +99,8 @@ Return only the JSON array, no markdown formatting or explanations.`;
 
             // Try to parse the JSON response
             try {
-                const parsed = OpenAIProvider.parseJSONResponse(content);
+                // Use provider-agnostic JSON parsing
+                const parsed = this.parseJSONResponse(content);
                 const results = this.validateResponse(parsed);
                 return {
                     results,
@@ -123,6 +123,23 @@ Return only the JSON array, no markdown formatting or explanations.`;
                 throw new Error(`File not found: ${filePath}`);
             }
             throw error;
+        }
+    }
+
+    /**
+     * Parse JSON response from LLM, handling markdown code blocks
+     * Works with both OpenAI and Qwen providers
+     */
+    private parseJSONResponse(content: string): any {
+        try {
+            return JSON.parse(content);
+        } catch (parseError) {
+            // If parsing fails, try to extract JSON from markdown blocks
+            const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[1]);
+            }
+            throw new Error(`Failed to parse JSON response: ${content}`);
         }
     }
 

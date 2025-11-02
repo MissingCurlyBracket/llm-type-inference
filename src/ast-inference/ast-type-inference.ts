@@ -19,8 +19,8 @@ export interface TypeInferenceResult {
 }
 
 export interface TypeInferenceResponse {
-    results: TypeInferenceResult[];
-    promptTokens: number;
+  results: TypeInferenceResult[];
+  promptTokens: number;
 }
 
 interface ASTNode {
@@ -53,9 +53,9 @@ interface ASTNode {
 export class ASTTypeInference {
   private llmProvider: LLMProvider;
 
-  constructor(llmConfig?: LLMConfig) {
+  constructor(llmConfig?: LLMConfig, providerType: 'openai' | 'qwen' = 'openai') {
     if (llmConfig) {
-      this.llmProvider = LLMProviderFactory.getProvider('openai', llmConfig);
+      this.llmProvider = LLMProviderFactory.getProvider(providerType, llmConfig);
     } else {
       // Default to OpenAI
       this.llmProvider = new OpenAIProvider();

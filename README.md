@@ -1,9 +1,13 @@
 # LLM Type Inference
 
-A TypeScript-based JavaScript to TypeScript type inference tool using OpenAI's language models with two different approaches.
+A TypeScript-based JavaScript to TypeScript type inference tool using LLMs (OpenAI and Qwen) with two different approaches.
 
 ## Features
 
+- **Multiple LLM Providers**:
+  - **OpenAI**: Cloud-based (GPT-4, GPT-3.5)
+  - **Qwen**: Local via Ollama (qwen3-coder:30b)
+  - Easy switching between providers
 - **Two Inference Approaches**:
   1. **Traditional**: Direct source code analysis
   2. **AST-based**: Parse to Abstract Syntax Tree first, then analyze structure
@@ -20,10 +24,27 @@ A TypeScript-based JavaScript to TypeScript type inference tool using OpenAI's l
 npm install
 ```
 
-2. Set up your OpenAI API key in `.env`:
+2. Choose your LLM provider:
+
+### Option A: OpenAI (Cloud)
+Set up your OpenAI API key in `.env`:
 ```
 OPENAI_API_KEY=your_openai_api_key_here
 ```
+
+### Option B: Qwen (Local via Ollama)
+```bash
+# Install Ollama
+brew install ollama
+
+# Pull the Qwen model
+ollama pull qwen3-coder:30b
+
+# Optionally set provider in .env
+LLM_PROVIDER=qwen
+```
+
+See [QWEN_PROVIDER.md](QWEN_PROVIDER.md) for detailed setup instructions.
 
 ## Usage
 
@@ -44,6 +65,12 @@ Run both approaches on a TypeScript file and evaluate against ground truth:
 ```bash
 npm run compare test-samples/simple.ts
 npm run compare test-samples/complex.ts
+```
+
+### Provider Comparison Example
+Run both OpenAI and Qwen providers side-by-side:
+```bash
+npm run example
 ```
 
 ### Automated Comparison Pipeline
@@ -152,13 +179,68 @@ npm run compare sample.js
 
 ## Dependencies
 
-- **Runtime**: `openai`, `dotenv`, `@babel/parser`, `@babel/types`
+- **Runtime**: `openai`, `ollama`, `dotenv`, `@babel/parser`, `@babel/types`
 - **Development**: `typescript`, `ts-node`, `@types/node`, `@types/babel__parser`, `@types/babel__types`
+
+## LLM Provider Support
+
+This project supports multiple LLM providers that can be easily interchanged:
+
+### OpenAI Provider
+- Models: GPT-4, GPT-3.5-turbo
+- Requires: API key
+- Cost: Pay per token
+- Setup: Add `OPENAI_API_KEY` to `.env`
+
+### Qwen Provider (via Ollama)
+- Model: qwen3-coder:30b
+- Requires: Ollama installed locally
+- Cost: Free (after setup)
+- Setup: `ollama pull qwen3-coder:30b`
+
+### Switching Providers
+
+**Method 1: Direct instantiation**
+```typescript
+import { TypeInference } from './src/basic-inference/type-inference';
+
+// OpenAI
+const openai = new TypeInference({ model: 'gpt-4' }, 'openai');
+
+// Qwen
+const qwen = new TypeInference({ model: 'qwen3-coder:30b' }, 'qwen');
+```
+
+**Method 2: Using ProviderConfig helper**
+```typescript
+import { TypeInference } from './src/basic-inference/type-inference';
+import { ProviderConfig } from './src/provider-config';
+
+const { config, provider } = ProviderConfig.qwen();
+const inference = new TypeInference(config, provider);
+```
+
+**Method 3: Environment variable**
+```bash
+# In .env
+LLM_PROVIDER=qwen  # or 'openai'
+```
+
+```typescript
+import { ProviderConfig } from './src/provider-config';
+
+const { config, provider } = ProviderConfig.fromEnv();
+const inference = new TypeInference(config, provider);
+```
 
 ## File Structure
 
 ```
 src/
+├── llm/
+│   ├── llm-provider.ts        # Provider interface and factory
+│   ├── openai-provider.ts     # OpenAI implementation
+│   └── qwen-provider.ts       # Qwen/Ollama implementation
 ├── basic-inference/
 │   ├── type-inference.ts      # Traditional approach
 │   └── infer.ts              # CLI for traditional approach
@@ -171,5 +253,7 @@ src/
 ├── pipeline/
 │   ├── comparison-pipeline.ts # Automated comparison pipeline
 │   └── run-pipeline.ts       # Quick pipeline runner
+├── provider-config.ts         # Provider configuration helper
+├── example-provider-usage.ts  # Example showing both providers
 └── compare.ts                # Compare both approaches on single files
 ```

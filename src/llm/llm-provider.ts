@@ -56,12 +56,16 @@ export class LLMProviderFactory {
     /**
      * Create or get the default LLM provider
      */
-    static getProvider(providerType: 'openai' = 'openai', config?: LLMConfig): LLMProvider {
+    static getProvider(providerType: 'openai' | 'qwen' = 'openai', config?: LLMConfig): LLMProvider {
         if (!this.instance) {
             switch (providerType) {
                 case 'openai':
                     const { OpenAIProvider } = require('./openai-provider');
                     this.instance = new OpenAIProvider(config);
+                    break;
+                case 'qwen':
+                    const { QwenProvider } = require('./qwen-provider');
+                    this.instance = new QwenProvider(config);
                     break;
                 default:
                     throw new Error(`Unsupported LLM provider: ${providerType}`);
