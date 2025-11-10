@@ -1,4 +1,8 @@
 import { LLMConfig } from './llm/llm-provider';
+import * as dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
 
 /**
  * Helper to create provider configurations
@@ -28,7 +32,7 @@ export class ProviderConfig {
                 model: options?.model || 'qwen3-coder:30b',
                 temperature: options?.temperature ?? 0.1,
                 maxTokens: options?.maxTokens || 4000,
-                apiKey: 'local' // Ollama doesn't need an API key
+                apiKey: 'local'
             },
             provider: 'qwen'
         };
@@ -42,32 +46,11 @@ export class ProviderConfig {
         const provider = process.env.LLM_PROVIDER?.toLowerCase();
 
         if (provider === 'qwen') {
+            console.log('✅ Provider selected from environment: Qwen (local via Ollama)');
             return this.qwen(options);
         }
 
+        console.log('✅ Provider selected from environment: OpenAI (default)');
         return this.openai(options);
     }
 }
-
-/**
- * Example usage:
- * 
- * import { TypeInference } from './basic-inference/type-inference';
- * import { ProviderConfig } from './provider-config';
- * 
- * // Using OpenAI
- * const { config, provider } = ProviderConfig.openai();
- * const inference = new TypeInference(config, provider);
- * 
- * // Using Qwen
- * const { config, provider } = ProviderConfig.qwen();
- * const inference = new TypeInference(config, provider);
- * 
- * // Using environment variable
- * const { config, provider } = ProviderConfig.fromEnv();
- * const inference = new TypeInference(config, provider);
- * 
- * // With custom options
- * const { config, provider } = ProviderConfig.qwen({ temperature: 0.3 });
- * const inference = new TypeInference(config, provider);
- */

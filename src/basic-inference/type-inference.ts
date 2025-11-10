@@ -24,7 +24,6 @@ export class TypeInference {
 
     constructor(llmConfig?: LLMConfig, providerType: 'openai' | 'qwen' = 'openai') {
         this.llmProvider = LLMProviderFactory.getProvider(providerType, llmConfig);
-
         if (!this.llmProvider.validateConfiguration()) {
             throw new Error('LLM provider configuration is invalid. Check your API key and settings.');
         }

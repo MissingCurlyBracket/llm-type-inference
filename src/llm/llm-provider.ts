@@ -31,17 +31,6 @@ export interface LLMProvider {
     generateCompletion(prompt: string, config?: LLMConfig): Promise<LLMResponse>;
     
     /**
-     * Generate multiple responses with potentially higher temperature
-     * for diverse predictions
-     */
-    generateMultipleCompletions(prompt: string, numCompletions?: number, config?: LLMConfig): Promise<LLMResponse>;
-    
-    /**
-     * Get the provider name (e.g., "openai", "anthropic")
-     */
-    getProviderName(): string;
-    
-    /**
      * Validate that the provider is properly configured
      */
     validateConfiguration(): boolean;
@@ -51,40 +40,48 @@ export interface LLMProvider {
  * Factory for creating LLM providers
  */
 export class LLMProviderFactory {
-    private static instance?: LLMProvider;
+    private static instances: Map<string, LLMProvider> = new Map();
     
     /**
-     * Create or get the default LLM provider
+     * Create or get the LLM provider for the specified type
      */
-    static getProvider(providerType: 'openai' | 'qwen' = 'openai', config?: LLMConfig): LLMProvider {
-        if (!this.instance) {
+    static getProvider(providerType: 'openai' | 'qwen' = 'openai', config?: LLMConfig): LLMProvider {        
+        
+        // Create a cache key based on provider type and config
+        const cacheKey = `${providerType}-${JSON.stringify(config || {})}`;
+        
+        if (!this.instances.has(cacheKey)) {
+            console.log(`📦 Creating new ${providerType} provider instance`);
             switch (providerType) {
                 case 'openai':
                     const { OpenAIProvider } = require('./openai-provider');
-                    this.instance = new OpenAIProvider(config);
+                    this.instances.set(cacheKey, new OpenAIProvider(config));
                     break;
                 case 'qwen':
                     const { QwenProvider } = require('./qwen-provider');
-                    this.instance = new QwenProvider(config);
+                    this.instances.set(cacheKey, new QwenProvider(config));
                     break;
                 default:
                     throw new Error(`Unsupported LLM provider: ${providerType}`);
             }
+        } else {
+            console.log(`♻️  Reusing cached ${providerType} provider instance`);
         }
-        return this.instance!;
+        return this.instances.get(cacheKey)!;
     }
     
     /**
-     * Set a custom provider instance
+     * Set a custom provider instance for a specific type
      */
-    static setProvider(provider: LLMProvider): void {
-        this.instance = provider;
+    static setProvider(provider: LLMProvider, providerType: 'openai' | 'qwen' = 'openai', config?: LLMConfig): void {
+        const cacheKey = `${providerType}-${JSON.stringify(config || {})}`;
+        this.instances.set(cacheKey, provider);
     }
     
     /**
-     * Reset the provider instance
+     * Reset all provider instances (clears the cache)
      */
     static reset(): void {
-        this.instance = undefined;
+        this.instances.clear();
     }
 }

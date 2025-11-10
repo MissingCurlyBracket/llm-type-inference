@@ -2,6 +2,7 @@ import { TypeInference } from '../basic-inference/type-inference';
 import { ASTTypeInference } from '../ast-inference/ast-type-inference';
 import { TypeScriptParser, GroundTruthType } from '../evaluation/typescript-parser';
 import { MetricsCalculator } from '../evaluation/evaluation-metrics';
+import { ProviderConfig } from '../provider-config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec, spawn } from 'child_process';
@@ -304,9 +305,11 @@ export class ComparisonPipeline {
         let astPromptTokens: number = 0;
 
         try {
+            // Get provider configuration from environment
+            const { config, provider } = ProviderConfig.fromEnv();
             // Run traditional approach
             try {
-                const traditionalInference = new TypeInference();
+                const traditionalInference = new TypeInference(config, provider);
                 const traditionalResponse = await traditionalInference.inferTypesFromFile(tempJsFile);
                 traditionalResults = traditionalResponse.results;
                 traditionalPromptTokens = traditionalResponse.promptTokens;
@@ -317,7 +320,7 @@ export class ComparisonPipeline {
 
             // Run AST approach
             try {
-                const astInference = new ASTTypeInference();
+                const astInference = new ASTTypeInference(config, provider);
                 const astResponse = await astInference.inferTypesFromFile(tempJsFile);
                 astResults = astResponse.results;
                 astPromptTokens = astResponse.promptTokens;

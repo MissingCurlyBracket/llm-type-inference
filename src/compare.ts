@@ -2,8 +2,8 @@ import { TypeInference } from './basic-inference/type-inference';
 import { ASTTypeInference } from './ast-inference/ast-type-inference';
 import { TypeScriptParser, GroundTruthType } from './evaluation/typescript-parser';
 import { MetricsCalculator } from './evaluation/evaluation-metrics';
+import { ProviderConfig } from './provider-config';
 import * as fs from 'fs';
-import * as path from 'path';
 
 async function main(): Promise<void> {
     try {
@@ -49,16 +49,19 @@ async function main(): Promise<void> {
         console.log(`JavaScript version created: ${tempJsFile}`);
 
         try {
+            // Get provider configuration from environment
+            const { config, provider } = ProviderConfig.fromEnv();
+            
             // Step 3: Run traditional source code approach
             console.log('\n3. Traditional Source Code Approach:');
-            console.log('Sending raw JavaScript code to OpenAI...');
+            console.log('Sending raw JavaScript code to LLM...');
             
             let traditionalResults: any[] = [];
             let traditionalMetrics: any = null;
             let traditionalPromptTokens: number = 0;
             
             try {
-                const traditionalInference = new TypeInference();
+                const traditionalInference = new TypeInference(config, provider);
                 const response = await traditionalInference.inferTypesFromFile(tempJsFile);
                 traditionalResults = response.results;
                 traditionalPromptTokens = response.promptTokens;
@@ -74,14 +77,14 @@ async function main(): Promise<void> {
 
             // Step 4: Run AST-based approach
             console.log('\n4. AST-based Approach:');
-            console.log('Parsing to AST first, then sending structure to OpenAI...');
+            console.log('Parsing to AST first, then sending structure to LLM...');
             
             let astResults: any[] = [];
             let astMetrics: any = null;
             let astPromptTokens: number = 0;
             
             try {
-                const astInference = new ASTTypeInference();
+                const astInference = new ASTTypeInference(config, provider);
                 const response = await astInference.inferTypesFromFile(tempJsFile);
                 astResults = response.results;
                 astPromptTokens = response.promptTokens;

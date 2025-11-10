@@ -3,7 +3,6 @@ import * as path from 'path';
 import { parse } from '@babel/parser';
 import * as t from '@babel/types';
 import { LLMProvider, LLMProviderFactory, LLMConfig } from '../llm/llm-provider';
-import { OpenAIProvider } from '../llm/openai-provider';
 
 export interface TypeInferenceResult {
   entity: 'function' | 'variable' | 'class' | 'class-method';
@@ -54,11 +53,9 @@ export class ASTTypeInference {
   private llmProvider: LLMProvider;
 
   constructor(llmConfig?: LLMConfig, providerType: 'openai' | 'qwen' = 'openai') {
-    if (llmConfig) {
-      this.llmProvider = LLMProviderFactory.getProvider(providerType, llmConfig);
-    } else {
-      // Default to OpenAI
-      this.llmProvider = new OpenAIProvider();
+    this.llmProvider = LLMProviderFactory.getProvider(providerType, llmConfig);
+    if (!this.llmProvider.validateConfiguration()) {
+      throw new Error('LLM provider configuration is invalid. Check your API key and settings.');
     }
   }
 
