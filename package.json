@@ -9,11 +9,16 @@
         "ast-infer": "ts-node src/ast-inference/ast-infer.ts",
         "compare": "ts-node src/compare.ts",
         "pipeline": "ts-node src/pipeline/comparison-pipeline.ts",
-        "run-pipeline": "ts-node src/pipeline/run-pipeline.ts"
+        "run-pipeline": "ts-node src/pipeline/run-pipeline.ts",
+        "generate-embeddings": "ts-node src/pipeline/embedding-pipeline.ts"
     },
     "dependencies": {
         "@babel/parser": "^7.23.0",
-        "@babel/types": "^7.23.0",
+        "@babel/traverse": "^7.28.5",
+        "@babel/types": "^7.28.5",
+        "@qdrant/js-client-rest": "^1.16.0",
+        "@types/babel__traverse": "^7.28.0",
+        "@xenova/transformers": "^2.17.2",
         "dotenv": "^16.0.0",
         "ollama": "^0.6.2",
         "openai": "^4.20.0",
@@ -22,6 +27,7 @@
     "devDependencies": {
         "@types/node": "^20.0.0",
         "ts-node": "^10.0.0",
+        "tsx": "^4.20.6",
         "typescript": "^5.0.0"
     },
     "keywords": [
