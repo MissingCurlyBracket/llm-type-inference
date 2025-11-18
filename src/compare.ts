@@ -1,8 +1,8 @@
-import { TypeInference } from './basic-inference/type-inference';
-import { ASTTypeInference } from './ast-inference/ast-type-inference';
-import { TypeScriptParser, GroundTruthType } from './evaluation/typescript-parser';
-import { MetricsCalculator } from './evaluation/evaluation-metrics';
-import { ProviderConfig } from './provider-config';
+import { TypeInference } from './basic-inference/type-inference.js';
+import { ASTTypeInference } from './ast-inference/ast-type-inference.js';
+import { TypeScriptParser, GroundTruthType } from './evaluation/typescript-parser.js';
+import { MetricsCalculator } from './evaluation/evaluation-metrics.js';
+import { ProviderConfig } from './provider-config.js';
 import * as fs from 'fs';
 
 async function main(): Promise<void> {
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
         console.log('\n1. Extracting Ground Truth from TypeScript...');
         const parser = new TypeScriptParser();
         const groundTruth = parser.extractGroundTruth(filePath);
-        
+
         console.log(`Ground truth extracted: ${groundTruth.length} identifiers`);
         console.log('Ground truth types:');
         groundTruth.forEach(gt => {
@@ -51,22 +51,22 @@ async function main(): Promise<void> {
         try {
             // Get provider configuration from environment
             const { config, provider } = ProviderConfig.fromEnv();
-            
+
             // Step 3: Run traditional source code approach
             console.log('\n3. Traditional Source Code Approach:');
             console.log('Sending raw JavaScript code to LLM...');
-            
+
             let traditionalResults: any[] = [];
             let traditionalMetrics: any = null;
             let traditionalPromptTokens: number = 0;
-            
+
             try {
-                const traditionalInference = new TypeInference(config, provider);
+                const traditionalInference = await TypeInference.create(config, provider);
                 const response = await traditionalInference.inferTypesFromFile(tempJsFile);
                 traditionalResults = response.results;
                 traditionalPromptTokens = response.promptTokens;
                 traditionalMetrics = MetricsCalculator.calculateMetrics(traditionalResults, groundTruth);
-                
+
                 console.log('Results:');
                 console.log(JSON.stringify(traditionalResults, null, 2));
                 console.log(`\nMetrics:`);
@@ -78,18 +78,18 @@ async function main(): Promise<void> {
             // Step 4: Run AST-based approach
             console.log('\n4. AST-based Approach:');
             console.log('Parsing to AST first, then sending structure to LLM...');
-            
+
             let astResults: any[] = [];
             let astMetrics: any = null;
             let astPromptTokens: number = 0;
-            
+
             try {
-                const astInference = new ASTTypeInference(config, provider);
+                const astInference = await ASTTypeInference.create(config, provider);
                 const response = await astInference.inferTypesFromFile(tempJsFile);
                 astResults = response.results;
                 astPromptTokens = response.promptTokens;
                 astMetrics = MetricsCalculator.calculateMetrics(astResults, groundTruth);
-                
+
                 console.log('Results:');
                 console.log(JSON.stringify(astResults, null, 2));
                 console.log(`\nMetrics:`);
@@ -104,7 +104,7 @@ async function main(): Promise<void> {
                 console.log('='.repeat(40));
                 console.log(`Better Accuracy: ${traditionalMetrics.accuracy > astMetrics.accuracy ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.accuracy, astMetrics.accuracy).toFixed(3)} vs ${Math.min(traditionalMetrics.accuracy, astMetrics.accuracy).toFixed(3)})`);
                 console.log(`Better MRR: ${traditionalMetrics.mrr > astMetrics.mrr ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.mrr, astMetrics.mrr).toFixed(3)} vs ${Math.min(traditionalMetrics.mrr, astMetrics.mrr).toFixed(3)})`);
-                
+
                 if (traditionalPromptTokens > 0 && astPromptTokens > 0) {
                     console.log(`Prompt Tokens: Traditional ${traditionalPromptTokens.toLocaleString()} vs AST ${astPromptTokens.toLocaleString()} (${traditionalPromptTokens > astPromptTokens ? 'AST' : 'Traditional'} more efficient)`);
                 }
@@ -114,7 +114,7 @@ async function main(): Promise<void> {
                     const traditionalComparison = MetricsCalculator.generateDetailedComparison(traditionalResults, groundTruth);
                     printDetailedComparison(traditionalComparison);
                 }
-                
+
                 // Detailed analysis for AST approach
                 if (astResults.length > 0) {
                     console.log('\n7. AST Approach - Detailed Analysis:');
@@ -179,7 +179,4 @@ function printDetailedComparison(comparison: any[]): void {
     }
 }
 
-// Run if this file is executed directly
-if (require.main === module) {
-    main().catch(console.error);
-}
+main().catch(console.error);

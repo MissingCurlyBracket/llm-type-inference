@@ -1,4 +1,4 @@
-import { GroundTruthType } from './typescript-parser';
+import { GroundTruthType } from './typescript-parser.js';
 
 export interface EvaluationMetrics {
     accuracy: number;

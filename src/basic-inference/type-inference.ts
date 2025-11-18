@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { LLMProvider, LLMProviderFactory, LLMConfig } from '../llm/llm-provider';
+import { LLMProvider, LLMProviderFactory, LLMConfig } from '../llm/llm-provider.js';
 
 export interface TypeInferenceResult {
     entity: 'function' | 'variable' | 'class' | 'class-method';
@@ -20,13 +20,17 @@ export interface TypeInferenceResponse {
 }
 
 export class TypeInference {
-    private llmProvider: LLMProvider;
+    private llmProvider!: LLMProvider;
 
-    constructor(llmConfig?: LLMConfig, providerType: 'openai' | 'qwen' = 'openai') {
-        this.llmProvider = LLMProviderFactory.getProvider(providerType, llmConfig);
-        if (!this.llmProvider.validateConfiguration()) {
+    private constructor() { }
+
+    static async create(llmConfig?: LLMConfig, providerType: 'openai' | 'qwen' = 'openai'): Promise<TypeInference> {
+        const instance = new TypeInference();
+        instance.llmProvider = await LLMProviderFactory.getProvider(providerType, llmConfig);
+        if (!instance.llmProvider.validateConfiguration()) {
             throw new Error('LLM provider configuration is invalid. Check your API key and settings.');
         }
+        return instance;
     }
 
     async inferTypes(sourceCode: string): Promise<TypeInferenceResponse> {

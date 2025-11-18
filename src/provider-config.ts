@@ -1,4 +1,4 @@
-import { LLMConfig } from './llm/llm-provider';
+import { LLMConfig } from './llm/llm-provider.js';
 import * as dotenv from 'dotenv';
 
 // Load environment variables from .env file

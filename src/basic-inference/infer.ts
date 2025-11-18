@@ -1,11 +1,11 @@
-import { TypeInference } from './type-inference';
-import { ProviderConfig } from '../provider-config';
+import { TypeInference } from './type-inference.js';
+import { ProviderConfig } from '../provider-config.js';
 
 async function main(): Promise<void> {
     try {
         // Use ProviderConfig helper to get provider from environment or default to OpenAI
         const { config, provider } = ProviderConfig.fromEnv();
-        const typeInference = new TypeInference(config, provider);
+        const typeInference = await TypeInference.create(config, provider);
 
         // Get file path from command line arguments
         const filePath = process.argv[2];
@@ -47,7 +47,4 @@ async function main(): Promise<void> {
     }
 }
 
-// Run if this file is executed directly
-if (require.main === module) {
-    main().catch(console.error);
-}
+main().catch(console.error);

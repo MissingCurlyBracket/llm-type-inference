@@ -1,6 +1,6 @@
 import { Ollama } from 'ollama';
 import * as dotenv from 'dotenv';
-import { LLMProvider, LLMConfig, LLMResponse } from './llm-provider';
+import { LLMProvider, LLMConfig, LLMResponse } from './llm-provider.js';
 
 dotenv.config();
 

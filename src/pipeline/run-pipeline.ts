@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { ComparisonPipeline } from './comparison-pipeline';
+import { ComparisonPipeline } from './comparison-pipeline.js';
 
 async function runPipeline() {
     const pipeline = new ComparisonPipeline({
@@ -8,7 +8,7 @@ async function runPipeline() {
         minFileSize: 300,
         maxFileSize: 5000
     });
-    
+
     try {
         await pipeline.run();
     } catch (error) {

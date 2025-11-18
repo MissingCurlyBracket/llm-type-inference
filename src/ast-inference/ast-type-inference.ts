@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from '@babel/parser';
 import * as t from '@babel/types';
-import { LLMProvider, LLMProviderFactory, LLMConfig } from '../llm/llm-provider';
+import { LLMProvider, LLMProviderFactory, LLMConfig } from '../llm/llm-provider.js';
 
 export interface TypeInferenceResult {
   entity: 'function' | 'variable' | 'class' | 'class-method';
@@ -50,13 +50,17 @@ interface ASTNode {
 }
 
 export class ASTTypeInference {
-  private llmProvider: LLMProvider;
+  private llmProvider!: LLMProvider;
 
-  constructor(llmConfig?: LLMConfig, providerType: 'openai' | 'qwen' = 'openai') {
-    this.llmProvider = LLMProviderFactory.getProvider(providerType, llmConfig);
-    if (!this.llmProvider.validateConfiguration()) {
+  private constructor() { }
+
+  static async create(llmConfig?: LLMConfig, providerType: 'openai' | 'qwen' = 'openai'): Promise<ASTTypeInference> {
+    const instance = new ASTTypeInference();
+    instance.llmProvider = await LLMProviderFactory.getProvider(providerType, llmConfig);
+    if (!instance.llmProvider.validateConfiguration()) {
       throw new Error('LLM provider configuration is invalid. Check your API key and settings.');
     }
+    return instance;
   }
 
   private parseSourceToAST(sourceCode: string): t.File {

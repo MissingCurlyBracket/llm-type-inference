@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import * as dotenv from 'dotenv';
-import { LLMProvider, LLMConfig, LLMResponse } from './llm-provider';
+import { LLMProvider, LLMConfig, LLMResponse } from './llm-provider.js';
 
 dotenv.config();
 
@@ -13,7 +13,7 @@ export class OpenAIProvider implements LLMProvider {
 
     constructor(config?: LLMConfig) {
         const apiKey = config?.apiKey || process.env.OPENAI_API_KEY;
-        
+
         if (!apiKey) {
             throw new Error('OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass apiKey in config.');
         }

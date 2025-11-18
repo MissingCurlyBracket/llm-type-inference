@@ -1,8 +1,8 @@
-import { TypeInference } from '../basic-inference/type-inference';
-import { ASTTypeInference } from '../ast-inference/ast-type-inference';
-import { TypeScriptParser, GroundTruthType } from '../evaluation/typescript-parser';
-import { MetricsCalculator } from '../evaluation/evaluation-metrics';
-import { ProviderConfig } from '../provider-config';
+import { TypeInference } from '../basic-inference/type-inference.js';
+import { ASTTypeInference } from '../ast-inference/ast-type-inference.js';
+import { TypeScriptParser, GroundTruthType } from '../evaluation/typescript-parser.js';
+import { MetricsCalculator } from '../evaluation/evaluation-metrics.js';
+import { ProviderConfig } from '../provider-config.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec, spawn } from 'child_process';
@@ -309,7 +309,7 @@ export class ComparisonPipeline {
             const { config, provider } = ProviderConfig.fromEnv();
             // Run traditional approach
             try {
-                const traditionalInference = new TypeInference(config, provider);
+                const traditionalInference = await TypeInference.create(config, provider);
                 const traditionalResponse = await traditionalInference.inferTypesFromFile(tempJsFile);
                 traditionalResults = traditionalResponse.results;
                 traditionalPromptTokens = traditionalResponse.promptTokens;
@@ -320,7 +320,7 @@ export class ComparisonPipeline {
 
             // Run AST approach
             try {
-                const astInference = new ASTTypeInference(config, provider);
+                const astInference = await ASTTypeInference.create(config, provider);
                 const astResponse = await astInference.inferTypesFromFile(tempJsFile);
                 astResults = astResponse.results;
                 astPromptTokens = astResponse.promptTokens;
@@ -394,20 +394,20 @@ export class ComparisonPipeline {
     }
 
     private calculateAggregateMetrics(
-        metrics: any[], 
+        metrics: any[],
         promptTokens: number[]
-    ): { 
-        averageAccuracy: number; 
-        averageMRR: number; 
-        totalCorrect: number; 
+    ): {
+        averageAccuracy: number;
+        averageMRR: number;
+        totalCorrect: number;
         totalPredictions: number;
         totalPromptTokens: number;
     } {
         if (metrics.length === 0) {
-            return { 
-                averageAccuracy: 0, 
-                averageMRR: 0, 
-                totalCorrect: 0, 
+            return {
+                averageAccuracy: 0,
+                averageMRR: 0,
+                totalCorrect: 0,
                 totalPredictions: 0,
                 totalPromptTokens: 0
             };
@@ -416,7 +416,7 @@ export class ComparisonPipeline {
         const totalCorrect = metrics.reduce((sum, m) => sum + m.correctPredictions, 0);
         const totalPredictions = metrics.reduce((sum, m) => sum + m.totalPredictions, 0);
         const averageAccuracy = totalPredictions > 0 ? totalCorrect / totalPredictions : 0;
-        
+
         const totalMRR = metrics.reduce((sum, m) => sum + (m.mrr || 0), 0);
         const averageMRR = metrics.length > 0 ? totalMRR / metrics.length : 0;
 
@@ -460,23 +460,23 @@ export class ComparisonPipeline {
             const astAcc = results.aggregateMetrics.ast.averageAccuracy;
             const traditionalMRR = results.aggregateMetrics.traditional.averageMRR;
             const astMRR = results.aggregateMetrics.ast.averageMRR;
-            
+
             const accWinner = traditionalAcc > astAcc ? 'Traditional' : 'AST';
             const accDifference = Math.abs(traditionalAcc - astAcc) * 100;
-            
+
             const mrrWinner = traditionalMRR > astMRR ? 'Traditional' : 'AST';
             const mrrDifference = Math.abs(traditionalMRR - astMRR);
 
             console.log(`\n🏆 Winner (Accuracy): ${accWinner} approach (${accDifference.toFixed(1)}% better)`);
             console.log(`🏆 Winner (MRR): ${mrrWinner} approach (${mrrDifference.toFixed(3)} better)`);
-            
+
             // Prompt token comparison
             const traditionalTokens = results.aggregateMetrics.traditional.totalPromptTokens;
             const astTokens = results.aggregateMetrics.ast.totalPromptTokens;
             const tokenDiff = Math.abs(traditionalTokens - astTokens);
             const tokenPercentDiff = ((tokenDiff / Math.max(traditionalTokens, astTokens)) * 100).toFixed(1);
             const moreEfficientApproach = traditionalTokens < astTokens ? 'Traditional' : 'AST';
-            
+
             console.log(`\n💰 Prompt Token Efficiency: ${moreEfficientApproach} approach uses ${tokenDiff.toLocaleString()} fewer prompt tokens (${tokenPercentDiff}% less)`);
         }
     }
