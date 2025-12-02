@@ -1,0 +1,211 @@
+import { LLMProvider, LLMProviderFactory, LLMConfig } from '../llm/llm-provider.js';
+import searchEmbeddings from '../vector-querying/query.js';
+import * as fs from 'fs';
+
+export interface TypeInferenceResult {
+    entity: 'function' | 'variable' | 'class' | 'class-method';
+    name: string;
+    location: {
+        line: number;
+        column: number;
+    };
+    types: {
+        params?: { [paramName: string]: string };
+        return: string[];
+    };
+}
+
+export interface TypeInferenceResponse {
+    results: TypeInferenceResult[];
+    promptTokens: number;
+}
+
+export class RAGTypeInference {
+    private llmProvider!: LLMProvider;
+
+    private constructor() { }
+
+    static async create(llmConfig?: LLMConfig, providerType: 'openai' | 'qwen' = 'openai'): Promise<RAGTypeInference> {
+        const instance = new RAGTypeInference();
+        instance.llmProvider = await LLMProviderFactory.getProvider(providerType, llmConfig);
+        if (!instance.llmProvider.validateConfiguration()) {
+            throw new Error('LLM provider configuration is invalid. Check your API key and settings.');
+        }
+        return instance;
+    }
+
+    async inferTypes(sourceCode: string, topN: number = 5): Promise<TypeInferenceResponse> {
+        const searchResults = await searchEmbeddings(sourceCode, topN);
+
+        const contextSnippets = searchResults.map(result => {
+            if (result.payload && typeof result.payload.code === 'string') {
+                return `\`\`\`typescript\n${result.payload.code}\n\`\`\``;
+            }
+            return '';
+        }).join('\n\n');
+
+        const prompt = `You are a static type inference assistant. Given a piece of JavaScript/TypeScript code and some context from a vector database, infer precise TypeScript-style types for the main code.
+
+Analyze the following code snippet:
+
+Here are the top ${topN} relevant code snippets from the database:
+
+${contextSnippets}
+
+For each identifier in the **original code snippet**, provide 5 possible type predictions ordered by confidence (most confident first).
+
+Respond only with a JSON array using this exact schema for each identifier found:
+{
+  "entity": "function|variable|class|class-method",
+  "name": "identifier_name",
+  "location": {
+    "line": 1,
+    "column": 0
+  },
+  "types": {
+    "params": { "paramName": "type" },
+    "return": ["type1", "type2", "type3", "type4", "type5"]
+  }
+}
+
+IMPORTANT EXTRACTION RULES:
+1. Extract ALL identifiers from the **original code snippet** including:
+   - Top-level functions (entity: "function")
+   - Variables and constants (entity: "variable")
+   - Class declarations (entity: "class")
+   - Class methods (entity: "class-method", name format: "ClassName.methodName")
+   - Arrow functions assigned to variables (entity: "function")
+
+2. For location field:
+   - Estimate line numbers by counting lines in the source code
+   - Use column 0 if exact position is unknown
+   - ALWAYS include location object with line and column numbers
+
+3. For types object:
+   - ALWAYS include "return" field as an array of 5 type predictions
+   - Order the return types by confidence (most confident first)
+   - For functions and class-methods: include "params" object (can be empty {})
+   - For variables and classes: omit "params" field entirely
+   - Example for function: "types": {"params": {"a": "number", "b": "number"}, "return": ["number", "any", "unknown", "void", "never"]}
+   - Example for variable: "types": {"return": ["string", "any", "unknown", "string | null", "string | undefined"]}
+   - Example for class: "types": {"return": ["ClassName", "any", "object", "unknown", "Object"]}
+
+4. TYPE INFERENCE RULES:
+   - Use specific TypeScript types: string, number, boolean, array, function, null, undefined, void
+   - For object types, prefer interface/class names if defined in the code
+   - For arrays, use "type[]" notation
+   - For class instances, use the class name as the type
+   - For class methods, use entity "class-method" and format name as "ClassName.methodName"
+   - Provide diverse alternatives (e.g., specific type, union types, general types like 'any')
+
+5. REQUIRED JSON STRUCTURE:
+   - Every item MUST have: entity, name, location, types
+   - location MUST have: line (number), column (number)
+   - types MUST have: return (array of 5 strings)
+   - types MAY have: params (object) - only for functions and class-methods
+
+Return only the JSON array, no markdown formatting or explanations.`;
+
+        try {
+            const response = await this.llmProvider.generateCompletion(prompt);
+            const content = response.content;
+
+            try {
+                const parsed = this.parseJSONResponse(content);
+                const results = this.validateResponse(parsed);
+                return {
+                    results,
+                    promptTokens: response.usage?.promptTokens || 0
+                };
+            } catch (parseError) {
+                throw new Error(`Failed to parse JSON response: ${content}`);
+            }
+        } catch (error) {
+            throw new Error(`LLM API error: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    async inferTypesFromFile(filePath: string, topN: number = 5): Promise<TypeInferenceResponse> {
+        try {
+            const sourceCode = fs.readFileSync(filePath, 'utf8');
+            return await this.inferTypes(sourceCode, topN);
+        } catch (error) {
+            if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+                throw new Error(`File not found: ${filePath}`);
+            }
+            throw error;
+        }
+    }
+
+    private parseJSONResponse(content: string): any {
+        try {
+            return JSON.parse(content);
+        } catch (parseError) {
+            const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[1]);
+            }
+            throw new Error(`Failed to parse JSON response: ${content}`);
+        }
+    }
+
+    private validateResponse(data: any): TypeInferenceResult[] {
+        if (!Array.isArray(data)) {
+            throw new Error('Response must be an array');
+        }
+
+        return data.map((item, index) => {
+            if (!item || typeof item !== 'object') {
+                throw new Error(`Invalid item at index ${index}: must be an object`);
+            }
+
+            const { entity, name, location, types } = item;
+
+            if (!['function', 'variable', 'class', 'class-method'].includes(entity)) {
+                throw new Error(`Invalid entity at index ${index}: must be 'function', 'variable', 'class', or 'class-method'`);
+            }
+
+            if (typeof name !== 'string') {
+                throw new Error(`Invalid name at index ${index}: must be a string`);
+            }
+
+            if (!location || typeof location !== 'object') {
+                throw new Error(`Invalid location at index ${index}: must be an object`);
+            }
+
+            const line = typeof location.line === 'number' ? location.line : 1;
+            const column = typeof location.column === 'number' ? location.column : 0;
+
+            if (!types || typeof types !== 'object') {
+                throw new Error(`Invalid types at index ${index}: must be an object`);
+            }
+
+            if (!Array.isArray(types.return) || types.return.length !== 5) {
+                throw new Error(`Invalid return type at index ${index}: must be an array of 5 strings`);
+            }
+
+            if (!types.return.every((t: any) => typeof t === 'string')) {
+                throw new Error(`Invalid return type at index ${index}: all return types must be strings`);
+            }
+
+            let params: { [key: string]: string } | undefined;
+            if (entity === 'function' || entity === 'class-method') {
+                if (types.params && typeof types.params === 'object') {
+                    params = types.params;
+                } else {
+                    params = {};
+                }
+            }
+
+            return {
+                entity: entity as 'function' | 'variable' | 'class' | 'class-method',
+                name,
+                location: { line, column },
+                types: {
+                    ...(params !== undefined && { params }),
+                    return: types.return
+                }
+            };
+        });
+    }
+}
