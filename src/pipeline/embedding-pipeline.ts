@@ -1,22 +1,27 @@
 
-import { pipeline, env } from '@xenova/transformers';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+import { randomUUID } from 'crypto';
 import { extractInformationFromDirectory } from '../information-extraction/index.js';
+import { env, pipeline } from '@xenova/transformers';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Allow local models
 env.allowLocalModels = true;
 
-const COLLECTION_NAME = 'typescript-code-embeddings';
+const COLLECTION_NAME = 'example-code-embeddings';
 
 async function run() {
     console.log('Starting information extraction...');
-    const extractedInfo = extractInformationFromDirectory(path.resolve(__dirname, '../../temp-typescript-repo/src'));
+    const extractedInfo = extractInformationFromDirectory(path.resolve(__dirname, '../../temp-example-repo'));
     console.log('Information extraction complete.');
 
-    console.log('Loading embedding model (microsoft/unixcoder-base)...');
+    console.log('Loading embedding model...');
     // The model will be downloaded and cached locally on first run.
-    const extractor = await pipeline('feature-extraction', 'microsoft/unixcoder-base');
+    const extractor = await pipeline('feature-extraction', 'Xenova/bert-base-uncased', { revision: 'default' });
     console.log('Embedding model loaded.');
 
     const qdrantClient = new QdrantClient({ url: 'http://localhost:6333' });
@@ -24,7 +29,7 @@ async function run() {
     console.log(`Creating Qdrant collection: ${COLLECTION_NAME}`);
     await qdrantClient.recreateCollection(COLLECTION_NAME, {
         vectors: {
-            size: 768, // unixcoder-base has 768 dimensions
+            size: 768,
             distance: 'Cosine',
         },
     });
@@ -53,7 +58,7 @@ async function run() {
                 wait: false,
                 points: [
                     {
-                        id: `${item.location.file}-${item.location.start.line}-${item.location.start.column}`,
+                        id: randomUUID(),
                         vector: Array.from(embedding.data as Float32Array),
                         payload: payload,
                     },
