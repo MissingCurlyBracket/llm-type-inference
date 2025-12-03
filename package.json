@@ -8,6 +8,7 @@
         "build": "tsc",
         "infer": "tsx src/basic-inference/infer.ts",
         "ast-infer": "tsx src/ast-inference/ast-infer.ts",
+        "rag-infer": "tsx src/rag-inference/rag-infer.ts",
         "compare": "tsx src/compare.ts",
         "pipeline": "tsx src/pipeline/comparison-pipeline.ts",
         "run-pipeline": "tsx src/pipeline/run-pipeline.ts",

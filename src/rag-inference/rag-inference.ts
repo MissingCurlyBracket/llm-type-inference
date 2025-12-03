@@ -52,6 +52,12 @@ Here are the top ${topN} relevant code snippets from the database:
 
 ${contextSnippets}
 
+And here is the source code:
+
+\`\`\`javascript\n
+${sourceCode}
+\n\`\`\`
+
 For each identifier in the **original code snippet**, provide 5 possible type predictions ordered by confidence (most confident first).
 
 Respond only with a JSON array using this exact schema for each identifier found:

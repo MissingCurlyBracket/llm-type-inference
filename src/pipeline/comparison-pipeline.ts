@@ -1,12 +1,13 @@
 import { TypeInference } from '../basic-inference/type-inference.js';
 import { ASTTypeInference } from '../ast-inference/ast-type-inference.js';
-import { TypeScriptParser, GroundTruthType } from '../evaluation/typescript-parser.js';
+import { TypeScriptParser } from '../evaluation/typescript-parser.js';
 import { MetricsCalculator } from '../evaluation/evaluation-metrics.js';
 import { ProviderConfig } from '../provider-config.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec, spawn } from 'child_process';
+import { exec } from 'child_process';
 import { promisify } from 'util';
+import { RAGTypeInference } from '../rag-inference/rag-inference.js';
 
 const execAsync = promisify(exec);
 
@@ -26,8 +27,10 @@ interface ComparisonResult {
     groundTruthCount: number;
     traditionalMetrics?: any;
     astMetrics?: any;
+    ragMetrics?: any;
     traditionalPromptTokens?: number;
     astPromptTokens?: number;
+    ragPromptTokens?: number;
     duration: number;
     error?: string;
 }
@@ -52,6 +55,13 @@ interface PipelineResults {
             totalPredictions: number;
             totalPromptTokens: number;
         };
+        rag: {
+            averageAccuracy: number;
+            averageMRR: number;
+            totalCorrect: number;
+            totalPredictions: number;
+            totalPromptTokens: number;
+        };
     };
 }
 
@@ -60,8 +70,8 @@ export class ComparisonPipeline {
 
     constructor(config: Partial<PipelineConfig> = {}) {
         this.config = {
-            repositoryUrl: config.repositoryUrl || 'https://github.com/microsoft/TypeScript.git',
-            targetDirectory: config.targetDirectory || 'temp-typescript-repo',
+            repositoryUrl: config.repositoryUrl || '',
+            targetDirectory: config.targetDirectory || 'temp-example-repo',
             numberOfFiles: config.numberOfFiles || 10,
             excludePatterns: config.excludePatterns || [
                 '**/node_modules/**',
@@ -123,7 +133,7 @@ export class ComparisonPipeline {
     }
 
     private async setupRepository(): Promise<void> {
-        console.log('\n📁 Setting up TypeScript repository...');
+        console.log('\n📁 Setting up repository...');
 
         const repoPath = path.resolve(this.config.targetDirectory);
 
@@ -131,7 +141,7 @@ export class ComparisonPipeline {
             console.log('Repository directory exists, updating...');
             return;
         } else {
-            await this.cloneRepository();
+            throw new Error(`Target directory not found: ${this.config.targetDirectory}`);
         }
     }
 
@@ -145,15 +155,14 @@ export class ComparisonPipeline {
     }
 
     private async findTypeScriptFiles(): Promise<string[]> {
-        console.log('\n🔍 Finding TypeScript files in src directory...');
+        console.log(`\n🔍 Finding TypeScript files in ${this.config.targetDirectory} directory...`);
 
         const repoPath = path.resolve(this.config.targetDirectory);
-        const srcPath = path.join(repoPath, 'src');
         const files: string[] = [];
 
         // Check if src directory exists
-        if (!fs.existsSync(srcPath)) {
-            console.log(`❌ No 'src' directory found in ${repoPath}`);
+        if (!fs.existsSync(repoPath)) {
+            console.log(`❌ No '${this.config.targetDirectory}' directory found in ${repoPath}`);
             return files;
         }
 
@@ -182,9 +191,9 @@ export class ComparisonPipeline {
             }
         };
 
-        walkDirectory(srcPath);
+        walkDirectory(repoPath);
 
-        console.log(`Found ${files.length} suitable TypeScript files in src directory`);
+        console.log(`Found ${files.length} suitable TypeScript files in ${this.config.targetDirectory} directory`);
         return files;
     }
 
@@ -299,64 +308,62 @@ export class ComparisonPipeline {
 
         let traditionalMetrics: any = null;
         let astMetrics: any = null;
+        let ragMetrics: any = null;
         let traditionalResults: any[] = [];
         let astResults: any[] = [];
+        let ragResults: any[] = [];
         let traditionalPromptTokens: number = 0;
         let astPromptTokens: number = 0;
+        let ragPromptTokens: number = 0;
 
         try {
             // Get provider configuration from environment
             const { config, provider } = ProviderConfig.fromEnv();
             // Run traditional approach
-            try {
-                const traditionalInference = await TypeInference.create(config, provider);
-                const traditionalResponse = await traditionalInference.inferTypesFromFile(tempJsFile);
-                traditionalResults = traditionalResponse.results;
-                traditionalPromptTokens = traditionalResponse.promptTokens;
-                traditionalMetrics = MetricsCalculator.calculateMetrics(traditionalResults, groundTruth);
-            } catch (error) {
-                console.log(`  Traditional approach failed: ${error instanceof Error ? error.message : String(error)}`);
-            }
+            console.log('  - Running traditional inference...');
+            const traditionalInfer = await TypeInference.create(config, provider);
+            const traditionalOutput = await traditionalInfer.inferTypesFromFile(tempJsFile);
+            traditionalResults = traditionalOutput.results;
+            traditionalPromptTokens = traditionalOutput.promptTokens;
+            traditionalMetrics = MetricsCalculator.calculateMetrics(traditionalResults, groundTruth);
+            console.log(`    - Accuracy: ${(traditionalMetrics.accuracy * 100).toFixed(2)}%`);
 
             // Run AST approach
-            try {
-                const astInference = await ASTTypeInference.create(config, provider);
-                const astResponse = await astInference.inferTypesFromFile(tempJsFile);
-                astResults = astResponse.results;
-                astPromptTokens = astResponse.promptTokens;
-                astMetrics = MetricsCalculator.calculateMetrics(astResults, groundTruth);
-            } catch (error) {
-                console.log(`  AST approach failed: ${error instanceof Error ? error.message : String(error)}`);
-            }
+            console.log('  - Running AST-based inference...');
+            const astInfer = await ASTTypeInference.create(config, provider);
+            const astOutput = await astInfer.inferTypesFromFile(tempJsFile);
+            astResults = astOutput.results;
+            astPromptTokens = astOutput.promptTokens;
+            astMetrics = MetricsCalculator.calculateMetrics(astResults, groundTruth);
+            console.log(`    - Accuracy: ${(astMetrics.accuracy * 100).toFixed(2)}%`);
 
-            if (!traditionalMetrics && !astMetrics) {
-                throw new Error('Both approaches failed');
-            }
-
-            console.log(`  Ground truth: ${groundTruth.length} identifiers`);
-            if (traditionalMetrics) {
-                console.log(`  Traditional: ${(traditionalMetrics.accuracy * 100).toFixed(1)}% accuracy`);
-            }
-            if (astMetrics) {
-                console.log(`  AST: ${(astMetrics.accuracy * 100).toFixed(1)}% accuracy`);
-            }
-
-            return {
-                filePath: relativePath,
-                fileSize,
-                groundTruthCount: groundTruth.length,
-                traditionalMetrics,
-                astMetrics,
-                traditionalPromptTokens,
-                astPromptTokens
-            };
+            // Run RAG approach
+            console.log('  - Running RAG-based inference...');
+            const ragInfer = await RAGTypeInference.create(config, provider);
+            const ragOutput = await ragInfer.inferTypesFromFile(tempJsFile);
+            ragResults = ragOutput.results;
+            ragPromptTokens = ragOutput.promptTokens;
+            ragMetrics = MetricsCalculator.calculateMetrics(ragResults, groundTruth);
+            console.log(`    - Accuracy: ${(ragMetrics.accuracy * 100).toFixed(2)}%`);
 
         } finally {
-            // Clean up temporary file
+            // Clean up temporary JS file
             if (fs.existsSync(tempJsFile)) {
                 fs.unlinkSync(tempJsFile);
             }
         }
+
+        return {
+            filePath: relativePath,
+            fileSize,
+            groundTruthCount: groundTruth.length,
+            traditionalMetrics,
+            astMetrics,
+            ragMetrics,
+            traditionalPromptTokens,
+            astPromptTokens,
+            ragPromptTokens,
+        };
     }
 
     private aggregateResults(results: ComparisonResult[]): PipelineResults {
@@ -367,6 +374,7 @@ export class ComparisonPipeline {
 
         const traditionalResults = successful.filter(r => r.traditionalMetrics);
         const astResults = successful.filter(r => r.astMetrics);
+        const ragResults = successful.filter(r => r.ragMetrics);
 
         const traditionalStats = this.calculateAggregateMetrics(
             traditionalResults.map(r => r.traditionalMetrics),
@@ -376,6 +384,10 @@ export class ComparisonPipeline {
             astResults.map(r => r.astMetrics),
             astResults.map(r => r.astPromptTokens || 0)
         );
+        const ragStats = this.calculateAggregateMetrics(
+            ragResults.map(r => r.ragMetrics),
+            ragResults.map(r => r.ragPromptTokens || 0)
+        );
 
         const pipelineResults: PipelineResults = {
             totalFiles: results.length,
@@ -384,7 +396,8 @@ export class ComparisonPipeline {
             results,
             aggregateMetrics: {
                 traditional: traditionalStats,
-                ast: astStats
+                ast: astStats,
+                rag: ragStats,
             }
         };
 
@@ -448,36 +461,17 @@ export class ComparisonPipeline {
         }
 
         if (results.aggregateMetrics.ast.totalPredictions > 0) {
-            console.log(`\nAST Approach:`);
-            console.log(`  Average accuracy: ${(results.aggregateMetrics.ast.averageAccuracy * 100).toFixed(1)}%`);
-            console.log(`  Average MRR: ${results.aggregateMetrics.ast.averageMRR.toFixed(3)}`);
-            console.log(`  Total correct: ${results.aggregateMetrics.ast.totalCorrect}/${results.aggregateMetrics.ast.totalPredictions}`);
-            console.log(`  Prompt tokens: ${results.aggregateMetrics.ast.totalPromptTokens.toLocaleString()}`);
+            console.log('\nAST-based Approach:');
+            console.log(`  - Average Accuracy: ${(results.aggregateMetrics.ast.averageAccuracy * 100).toFixed(2)}%`);
+            console.log(`  - Average MRR: ${results.aggregateMetrics.ast.averageMRR.toFixed(3)}`);
+            console.log(`  - Total Prompt Tokens: ${results.aggregateMetrics.ast.totalPromptTokens}`);
         }
 
-        if (results.aggregateMetrics.traditional.totalPredictions > 0 && results.aggregateMetrics.ast.totalPredictions > 0) {
-            const traditionalAcc = results.aggregateMetrics.traditional.averageAccuracy;
-            const astAcc = results.aggregateMetrics.ast.averageAccuracy;
-            const traditionalMRR = results.aggregateMetrics.traditional.averageMRR;
-            const astMRR = results.aggregateMetrics.ast.averageMRR;
-
-            const accWinner = traditionalAcc > astAcc ? 'Traditional' : 'AST';
-            const accDifference = Math.abs(traditionalAcc - astAcc) * 100;
-
-            const mrrWinner = traditionalMRR > astMRR ? 'Traditional' : 'AST';
-            const mrrDifference = Math.abs(traditionalMRR - astMRR);
-
-            console.log(`\n🏆 Winner (Accuracy): ${accWinner} approach (${accDifference.toFixed(1)}% better)`);
-            console.log(`🏆 Winner (MRR): ${mrrWinner} approach (${mrrDifference.toFixed(3)} better)`);
-
-            // Prompt token comparison
-            const traditionalTokens = results.aggregateMetrics.traditional.totalPromptTokens;
-            const astTokens = results.aggregateMetrics.ast.totalPromptTokens;
-            const tokenDiff = Math.abs(traditionalTokens - astTokens);
-            const tokenPercentDiff = ((tokenDiff / Math.max(traditionalTokens, astTokens)) * 100).toFixed(1);
-            const moreEfficientApproach = traditionalTokens < astTokens ? 'Traditional' : 'AST';
-
-            console.log(`\n💰 Prompt Token Efficiency: ${moreEfficientApproach} approach uses ${tokenDiff.toLocaleString()} fewer prompt tokens (${tokenPercentDiff}% less)`);
+        if (results.aggregateMetrics.rag.totalPredictions > 0) {
+            console.log('\nRAG-based Approach:');
+            console.log(`  - Average Accuracy: ${(results.aggregateMetrics.rag.averageAccuracy * 100).toFixed(2)}%`);
+            console.log(`  - Average MRR: ${results.aggregateMetrics.rag.averageMRR.toFixed(3)}`);
+            console.log(`  - Total Prompt Tokens: ${results.aggregateMetrics.rag.totalPromptTokens}`);
         }
     }
 
@@ -523,11 +517,17 @@ export class ComparisonPipeline {
         }
 
         if (results.aggregateMetrics.ast.totalPredictions > 0) {
-            report += `### AST Approach\n`;
-            report += `- Average accuracy: ${(results.aggregateMetrics.ast.averageAccuracy * 100).toFixed(1)}%\n`;
-            report += `- Average MRR: ${results.aggregateMetrics.ast.averageMRR.toFixed(3)}\n`;
-            report += `- Total correct: ${results.aggregateMetrics.ast.totalCorrect}/${results.aggregateMetrics.ast.totalPredictions}\n`;
-            report += `- Prompt tokens: ${results.aggregateMetrics.ast.totalPromptTokens.toLocaleString()}\n\n`;
+            report += `### AST-based Approach\n\n`;
+            report += `- **Average Accuracy:** ${(results.aggregateMetrics.ast.averageAccuracy * 100).toFixed(2)}%\n`;
+            report += `- **Average MRR:** ${results.aggregateMetrics.ast.averageMRR.toFixed(3)}\n`;
+            report += `- **Total Prompt Tokens:** ${results.aggregateMetrics.ast.totalPromptTokens}\n\n`;
+        }
+
+        if (results.aggregateMetrics.rag.totalPredictions > 0) {
+            report += `### RAG-based Approach\n\n`;
+            report += `- **Average Accuracy:** ${(results.aggregateMetrics.rag.averageAccuracy * 100).toFixed(2)}%\n`;
+            report += `- **Average MRR:** ${results.aggregateMetrics.rag.averageMRR.toFixed(3)}\n`;
+            report += `- **Total Prompt Tokens:** ${results.aggregateMetrics.rag.totalPromptTokens}\n\n`;
         }
 
         report += `## Individual Results\n\n`;
@@ -554,6 +554,14 @@ export class ComparisonPipeline {
                     report += `- AST: ${(result.astMetrics.accuracy * 100).toFixed(1)}% accuracy, ${result.astMetrics.mrr.toFixed(3)} MRR (${result.astMetrics.correctPredictions}/${result.astMetrics.totalPredictions})`;
                     if (result.astPromptTokens) {
                         report += ` - ${result.astPromptTokens.toLocaleString()} prompt tokens`;
+                    }
+                    report += `\n`;
+                }
+
+                if (result.ragMetrics) {
+                    report += `- RAG: ${(result.ragMetrics.accuracy * 100).toFixed(1)}% accuracy, ${result.ragMetrics.mrr.toFixed(3)} MRR (${result.ragMetrics.correctPredictions}/${result.ragMetrics.totalPredictions})`;
+                    if (result.ragPromptTokens) {
+                        report += ` - ${result.ragPromptTokens.toLocaleString()} prompt tokens`;
                     }
                     report += `\n`;
                 }
@@ -595,12 +603,6 @@ export class ComparisonPipeline {
         };
 
         walkDirectory(dirPath);
-    }
-
-    private async removeDirectory(dirPath: string): Promise<void> {
-        if (fs.existsSync(dirPath)) {
-            fs.rmSync(dirPath, { recursive: true, force: true });
-        }
     }
 }
 
@@ -665,6 +667,6 @@ Examples:
 }
 
 // Run if this file is executed directly
-if (require.main === module) {
+if (process.argv[1] && process.argv[1].endsWith('run-pipeline.ts')) {
     main().catch(console.error);
 }
