@@ -143,6 +143,8 @@ vite.config.ts.timestamp-*
 
 # Pipeline-specific ignores
 temp-typescript-repo/
+temp-vscode-repo/
+temp-vue-repo/
 pipeline-results/
 *.temp.js
 ast-infer/
