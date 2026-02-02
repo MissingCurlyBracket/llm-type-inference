@@ -47,53 +47,60 @@ async function run() {
 
         const qdrantClient = new QdrantClient({ url: 'http://localhost:6333' });
 
-        console.log(`Creating Qdrant collection: ${COLLECTION_NAME}`);
-        await qdrantClient.recreateCollection(COLLECTION_NAME, {
-            vectors: {
-                size: 768,
-                distance: 'Cosine',
-            },
-        });
-        console.log('Qdrant collection created.');
+        const collectionName = 'temp-example-repo';
+        const collections = await qdrantClient.getCollections();
+        const collectionExists = collections.collections.some((c: any) => c.name === collectionName);
 
-        let totalPoints = 0;
-        const allData = [];
+        if (!collectionExists) {
+            console.log(`Creating Qdrant collection: ${collectionName}`);
+            await qdrantClient.recreateCollection(collectionName, {
+                vectors: {
+                    size: 768,
+                    distance: 'Cosine',
+                },
+            });
+            console.log('Qdrant collection created.');
 
-        for (const key of Object.keys(extractedInfo)) {
-            const items = extractedInfo[key as keyof typeof extractedInfo];
-            if (Array.isArray(items)) {
-                allData.push(...items.map(item => ({ ...item, type: key })));
+            let totalPoints = 0;
+            const allData = [];
+
+            for (const key of Object.keys(extractedInfo)) {
+                const items = extractedInfo[key as keyof typeof extractedInfo];
+                if (Array.isArray(items)) {
+                    allData.push(...items.map(item => ({ ...item, type: key })));
+                }
             }
+
+            console.log(`Found ${allData.length} code snippets to embed.`);
+
+            for (let i = 0; i < allData.length; i++) {
+                const item = allData[i];
+                const { rawSource, ...payload } = item;
+
+                if (rawSource && rawSource.trim().length > 0) {
+                    const embedding = await extractor(rawSource, { pooling: 'mean', normalize: true });
+
+                    await qdrantClient.upsert(collectionName, {
+                        wait: false,
+                        points: [
+                            {
+                                id: randomUUID(),
+                                vector: Array.from(embedding.data as Float32Array),
+                                payload: payload,
+                            },
+                        ],
+                    });
+                    totalPoints++;
+                }
+
+                if ((i + 1) % 100 === 0) {
+                    console.log(`Embedded and stored ${i + 1}/${allData.length} snippets...`);
+                }
+            }
+            console.log(`\nEmbedding and storage complete. Total points in collection: ${totalPoints}`);
+        } else {
+            console.log(`Collection ${collectionName} already exists. Using existing DB.`);
         }
-
-        console.log(`Found ${allData.length} code snippets to embed.`);
-
-        for (let i = 0; i < allData.length; i++) {
-            const item = allData[i];
-            const { rawSource, ...payload } = item;
-
-            if (rawSource && rawSource.trim().length > 0) {
-                const embedding = await extractor(rawSource, { pooling: 'mean', normalize: true });
-
-                await qdrantClient.upsert(COLLECTION_NAME, {
-                    wait: false,
-                    points: [
-                        {
-                            id: randomUUID(),
-                            vector: Array.from(embedding.data as Float32Array),
-                            payload: payload,
-                        },
-                    ],
-                });
-                totalPoints++;
-            }
-
-            if ((i + 1) % 100 === 0) {
-                console.log(`Embedded and stored ${i + 1}/${allData.length} snippets...`);
-            }
-        }
-
-        console.log(`\nEmbedding and storage complete. Total points in collection: ${totalPoints}`);
     } finally {
         if (fs.existsSync(tempDir)) {
             fs.rmSync(tempDir, { recursive: true, force: true });

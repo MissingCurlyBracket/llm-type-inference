@@ -99,225 +99,229 @@ export function extractInformationFromDirectory(dirPath: string): ExtractionOutp
 
     for (const file of files) {
         if (file.endsWith('.ts') || file.endsWith('.tsx') || file.endsWith('.js') || file.endsWith('.jsx')) {
-            const sourceCode = fs.readFileSync(file, 'utf-8');
-            const ast = babelParse(sourceCode);
+            try {
+                const sourceCode = fs.readFileSync(file, 'utf-8');
+                const ast = babelParse(sourceCode);
 
-            const comments = ast.comments;
-            if (comments) {
-                for (const comment of comments) {
-                    if (comment.loc && (comment.value.includes('@param') || comment.value.includes('@returns') || comment.value.includes('@type') || comment.value.includes('@typedef'))) {
-                        output.jsdoc.push({
-                            location: {
-                                file,
-                                start: comment.loc.start,
-                                end: comment.loc.end,
-                            },
-                            context: 'JSDoc comments provide type information directly from the source code.',
-                            rawSource: comment.value,
-                        });
-                    }
-                }
-            }
-
-            traverse(ast, {
-                Function(path: NodePath<t.Function>) {
-                    const node = path.node;
-                    let name = '<anonymous>';
-
-                    if (t.isFunctionDeclaration(node) || t.isFunctionExpression(node)) {
-                        if (node.id) {
-                            name = node.id.name;
-                        } else if (t.isVariableDeclarator(path.parent)) {
-                            // Handle `const myFunc = () => {}`
-                            if (t.isIdentifier(path.parent.id)) {
-                                name = path.parent.id.name;
-                            }
-                        }
-                    } else if (t.isObjectMethod(node) || t.isClassMethod(node) || t.isClassPrivateMethod(node)) {
-                        if (t.isIdentifier(node.key)) {
-                            name = node.key.name;
-                        }
-                    } else if (t.isArrowFunctionExpression(node)) {
-                        if (t.isVariableDeclarator(path.parent)) {
-                            if (t.isIdentifier(path.parent.id)) {
-                                name = path.parent.id.name;
-                            }
-                        }
-                    }
-
-                    let exportStatus: 'default' | 'named' | 'local' = 'local';
-                    if (t.isExportDefaultDeclaration(path.parent)) {
-                        exportStatus = 'default';
-                    } else if (t.isExportNamedDeclaration(path.parent)) {
-                        exportStatus = 'named';
-                    }
-
-
-                    if (!node.loc) {
-                        return;
-                    }
-
-                    const func: FunctionInfo = {
-                        name,
-                        exportStatus,
-                        params: node.params.map((p: any) => getRawSource(sourceCode, p)),
-                        isAsync: node.async || false,
-                        isGenerator: node.generator || false,
-                        returns: [],
-                        location: {
-                            file,
-                            start: node.loc.start,
-                            end: node.loc.end,
-                        },
-                        context: 'Function definition provides a scope for variables and can be a type itself.',
-                        rawSource: getRawSource(sourceCode, node),
-                    };
-
-                    path.traverse({
-                        ReturnStatement(returnPath: NodePath<t.ReturnStatement>) {
-                            if (returnPath.node.argument) {
-                                func.returns.push(getRawSource(sourceCode, returnPath.node.argument));
-                            }
-                        }
-                    });
-
-                    output.functions.push(func);
-                },
-                CallExpression(path: NodePath<t.CallExpression>) {
-                    const node = path.node;
-                    if (!node.loc) return;
-                    output.callSites.push({
-                        callee: getRawSource(sourceCode, node.callee),
-                        args: node.arguments.map((arg: any) => getRawSource(sourceCode, arg)),
-                        location: {
-                            file,
-                            start: node.loc.start,
-                            end: node.loc.end,
-                        },
-                        context: 'A function call can reveal the types of arguments and the return type of the callee.',
-                        rawSource: getRawSource(sourceCode, node),
-                    });
-                },
-                ObjectExpression(path: NodePath<t.ObjectExpression>) {
-                    const node = path.node;
-                    if (!node.loc) return;
-                    output.objectShapes.push({
-                        properties: node.properties.map((prop: any) => getRawSource(sourceCode, prop)),
-                        location: {
-                            file,
-                            start: node.loc.start,
-                            end: node.loc.end,
-                        },
-                        context: 'Object literals define the shape of an object, which is a structural type.',
-                        rawSource: getRawSource(sourceCode, node),
-                    });
-                },
-                VariableDeclarator(path: NodePath<t.VariableDeclarator>) {
-                    const node = path.node;
-                    if (!node.loc || !t.isIdentifier(node.id)) return;
-
-                    const scope = path.scope;
-                    const binding = scope.getBinding(node.id.name);
-                    output.variables.push({
-                        name: node.id.name,
-                        initialValue: node.init ? getRawSource(sourceCode, node.init) : null,
-                        reassigned: binding ? binding.constantViolations.length > 0 : false,
-                        location: {
-                            file,
-                            start: node.loc.start,
-                            end: node.loc.end,
-                        },
-                        context: 'A variable declaration binds a value to a name, and its initial value is a strong hint for its type.',
-                        rawSource: getRawSource(sourceCode, node),
-                    });
-                },
-                ClassDeclaration(path: NodePath<t.ClassDeclaration>) {
-                    const node = path.node;
-                    if (!node.loc) return;
-                    output.classes.push({
-                        name: node.id ? node.id.name : '<anonymous>',
-                        superClass: node.superClass ? getRawSource(sourceCode, node.superClass) : null,
-                        methods: node.body.body.filter((item): item is t.ClassMethod => t.isClassMethod(item)).map((item: any) => getRawSource(sourceCode, item)),
-                        properties: node.body.body.filter((item): item is t.ClassProperty => t.isClassProperty(item)).map((item: any) => getRawSource(sourceCode, item)),
-                        location: {
-                            file,
-                            start: node.loc.start,
-                            end: node.loc.end,
-                        },
-                        context: 'A class declaration defines a blueprint for creating objects with a specific set of properties and methods.',
-                        rawSource: getRawSource(sourceCode, node),
-                    });
-                },
-                ImportDeclaration(path: NodePath<t.ImportDeclaration>) {
-                    const node = path.node;
-                    if (!node.loc) return;
-                    output.imports.push({
-                        location: {
-                            file,
-                            start: node.loc.start,
-                            end: node.loc.end,
-                        },
-                        context: 'Imports bring in types and values from other modules.',
-                        rawSource: getRawSource(sourceCode, node),
-                    });
-                },
-                ExportDeclaration(path: NodePath<t.ExportDeclaration>) {
-                    const node = path.node;
-                    if (!node.loc) return;
-                    output.exports.push({
-                        location: {
-                            file,
-                            start: node.loc.start,
-                            end: node.loc.end,
-                        },
-                        context: 'Exports expose functions, variables, and types to other modules.',
-                        rawSource: getRawSource(sourceCode, node),
-                    });
-                },
-                Literal(path: NodePath<t.Literal>) {
-                    const node = path.node;
-                    if (!node.loc) return;
-                    output.literalEvidence.push({
-                        location: {
-                            file,
-                            start: node.loc.start,
-                            end: node.loc.end,
-                        },
-                        context: 'Literal values are the most direct evidence for primitive types.',
-                        rawSource: getRawSource(sourceCode, node),
-                    });
-                },
-                IfStatement(path: NodePath<t.IfStatement>) {
-                    const node = path.node;
-                    if (!node.loc) return;
-                    if (t.isBinaryExpression(node.test) && (node.test.operator === '===' || node.test.operator === '!==' || node.test.operator === '==' || node.test.operator === '!=')) {
-                        if (t.isUnaryExpression(node.test.left) && node.test.left.operator === 'typeof') {
-                            output.controlFlowHints.push({
+                const comments = ast.comments;
+                if (comments) {
+                    for (const comment of comments) {
+                        if (comment.loc && (comment.value.includes('@param') || comment.value.includes('@returns') || comment.value.includes('@type') || comment.value.includes('@typedef'))) {
+                            output.jsdoc.push({
                                 location: {
                                     file,
-                                    start: node.loc.start,
-                                    end: node.loc.end,
+                                    start: comment.loc.start,
+                                    end: comment.loc.end,
                                 },
-                                context: 'A typeof check in a conditional statement provides a strong hint about the type of a variable in a specific branch.',
-                                rawSource: getRawSource(sourceCode, node),
+                                context: 'JSDoc comments provide type information directly from the source code.',
+                                rawSource: comment.value,
                             });
                         }
                     }
-                },
-                SwitchStatement(path: NodePath<t.SwitchStatement>) {
-                    const node = path.node;
-                    if (!node.loc) return;
-                    output.controlFlowHints.push({
-                        location: {
-                            file,
-                            start: node.loc.start,
-                            end: node.loc.end,
-                        },
-                        context: 'A switch statement often refines the type of a variable based on the case.',
-                        rawSource: getRawSource(sourceCode, node),
-                    });
                 }
-            });
+
+                traverse(ast, {
+                    Function(path: NodePath<t.Function>) {
+                        const node = path.node;
+                        let name = '<anonymous>';
+
+                        if (t.isFunctionDeclaration(node) || t.isFunctionExpression(node)) {
+                            if (node.id) {
+                                name = node.id.name;
+                            } else if (t.isVariableDeclarator(path.parent)) {
+                                // Handle `const myFunc = () => {}`
+                                if (t.isIdentifier(path.parent.id)) {
+                                    name = path.parent.id.name;
+                                }
+                            }
+                        } else if (t.isObjectMethod(node) || t.isClassMethod(node) || t.isClassPrivateMethod(node)) {
+                            if (t.isIdentifier(node.key)) {
+                                name = node.key.name;
+                            }
+                        } else if (t.isArrowFunctionExpression(node)) {
+                            if (t.isVariableDeclarator(path.parent)) {
+                                if (t.isIdentifier(path.parent.id)) {
+                                    name = path.parent.id.name;
+                                }
+                            }
+                        }
+
+                        let exportStatus: 'default' | 'named' | 'local' = 'local';
+                        if (t.isExportDefaultDeclaration(path.parent)) {
+                            exportStatus = 'default';
+                        } else if (t.isExportNamedDeclaration(path.parent)) {
+                            exportStatus = 'named';
+                        }
+
+
+                        if (!node.loc) {
+                            return;
+                        }
+
+                        const func: FunctionInfo = {
+                            name,
+                            exportStatus,
+                            params: node.params.map((p: any) => getRawSource(sourceCode, p)),
+                            isAsync: node.async || false,
+                            isGenerator: node.generator || false,
+                            returns: [],
+                            location: {
+                                file,
+                                start: node.loc.start,
+                                end: node.loc.end,
+                            },
+                            context: 'Function definition provides a scope for variables and can be a type itself.',
+                            rawSource: getRawSource(sourceCode, node),
+                        };
+
+                        path.traverse({
+                            ReturnStatement(returnPath: NodePath<t.ReturnStatement>) {
+                                if (returnPath.node.argument) {
+                                    func.returns.push(getRawSource(sourceCode, returnPath.node.argument));
+                                }
+                            }
+                        });
+
+                        output.functions.push(func);
+                    },
+                    CallExpression(path: NodePath<t.CallExpression>) {
+                        const node = path.node;
+                        if (!node.loc) return;
+                        output.callSites.push({
+                            callee: getRawSource(sourceCode, node.callee),
+                            args: node.arguments.map((arg: any) => getRawSource(sourceCode, arg)),
+                            location: {
+                                file,
+                                start: node.loc.start,
+                                end: node.loc.end,
+                            },
+                            context: 'A function call can reveal the types of arguments and the return type of the callee.',
+                            rawSource: getRawSource(sourceCode, node),
+                        });
+                    },
+                    ObjectExpression(path: NodePath<t.ObjectExpression>) {
+                        const node = path.node;
+                        if (!node.loc) return;
+                        output.objectShapes.push({
+                            properties: node.properties.map((prop: any) => getRawSource(sourceCode, prop)),
+                            location: {
+                                file,
+                                start: node.loc.start,
+                                end: node.loc.end,
+                            },
+                            context: 'Object literals define the shape of an object, which is a structural type.',
+                            rawSource: getRawSource(sourceCode, node),
+                        });
+                    },
+                    VariableDeclarator(path: NodePath<t.VariableDeclarator>) {
+                        const node = path.node;
+                        if (!node.loc || !t.isIdentifier(node.id)) return;
+
+                        const scope = path.scope;
+                        const binding = scope.getBinding(node.id.name);
+                        output.variables.push({
+                            name: node.id.name,
+                            initialValue: node.init ? getRawSource(sourceCode, node.init) : null,
+                            reassigned: binding ? binding.constantViolations.length > 0 : false,
+                            location: {
+                                file,
+                                start: node.loc.start,
+                                end: node.loc.end,
+                            },
+                            context: 'A variable declaration binds a value to a name, and its initial value is a strong hint for its type.',
+                            rawSource: getRawSource(sourceCode, node),
+                        });
+                    },
+                    ClassDeclaration(path: NodePath<t.ClassDeclaration>) {
+                        const node = path.node;
+                        if (!node.loc) return;
+                        output.classes.push({
+                            name: node.id ? node.id.name : '<anonymous>',
+                            superClass: node.superClass ? getRawSource(sourceCode, node.superClass) : null,
+                            methods: node.body.body.filter((item): item is t.ClassMethod => t.isClassMethod(item)).map((item: any) => getRawSource(sourceCode, item)),
+                            properties: node.body.body.filter((item): item is t.ClassProperty => t.isClassProperty(item)).map((item: any) => getRawSource(sourceCode, item)),
+                            location: {
+                                file,
+                                start: node.loc.start,
+                                end: node.loc.end,
+                            },
+                            context: 'A class declaration defines a blueprint for creating objects with a specific set of properties and methods.',
+                            rawSource: getRawSource(sourceCode, node),
+                        });
+                    },
+                    ImportDeclaration(path: NodePath<t.ImportDeclaration>) {
+                        const node = path.node;
+                        if (!node.loc) return;
+                        output.imports.push({
+                            location: {
+                                file,
+                                start: node.loc.start,
+                                end: node.loc.end,
+                            },
+                            context: 'Imports bring in types and values from other modules.',
+                            rawSource: getRawSource(sourceCode, node),
+                        });
+                    },
+                    ExportDeclaration(path: NodePath<t.ExportDeclaration>) {
+                        const node = path.node;
+                        if (!node.loc) return;
+                        output.exports.push({
+                            location: {
+                                file,
+                                start: node.loc.start,
+                                end: node.loc.end,
+                            },
+                            context: 'Exports expose functions, variables, and types to other modules.',
+                            rawSource: getRawSource(sourceCode, node),
+                        });
+                    },
+                    Literal(path: NodePath<t.Literal>) {
+                        const node = path.node;
+                        if (!node.loc) return;
+                        output.literalEvidence.push({
+                            location: {
+                                file,
+                                start: node.loc.start,
+                                end: node.loc.end,
+                            },
+                            context: 'Literal values are the most direct evidence for primitive types.',
+                            rawSource: getRawSource(sourceCode, node),
+                        });
+                    },
+                    IfStatement(path: NodePath<t.IfStatement>) {
+                        const node = path.node;
+                        if (!node.loc) return;
+                        if (t.isBinaryExpression(node.test) && (node.test.operator === '===' || node.test.operator === '!==' || node.test.operator === '==' || node.test.operator === '!=')) {
+                            if (t.isUnaryExpression(node.test.left) && node.test.left.operator === 'typeof') {
+                                output.controlFlowHints.push({
+                                    location: {
+                                        file,
+                                        start: node.loc.start,
+                                        end: node.loc.end,
+                                    },
+                                    context: 'A typeof check in a conditional statement provides a strong hint about the type of a variable in a specific branch.',
+                                    rawSource: getRawSource(sourceCode, node),
+                                });
+                            }
+                        }
+                    },
+                    SwitchStatement(path: NodePath<t.SwitchStatement>) {
+                        const node = path.node;
+                        if (!node.loc) return;
+                        output.controlFlowHints.push({
+                            location: {
+                                file,
+                                start: node.loc.start,
+                                end: node.loc.end,
+                            },
+                            context: 'A switch statement often refines the type of a variable based on the case.',
+                            rawSource: getRawSource(sourceCode, node),
+                        });
+                    }
+                });
+            } catch (e) {
+                console.warn(`Skipping file due to extraction error: ${file}`);
+            }
         }
     }
 
@@ -330,7 +334,9 @@ function getAllFiles(dirPath: string, arrayOfFiles: string[] = []): string[] {
     files.forEach(function (file) {
         const fullPath = path.join(dirPath, file);
         if (fs.statSync(fullPath).isDirectory()) {
-            arrayOfFiles = getAllFiles(fullPath, arrayOfFiles);
+            if (!['node_modules', '.git', 'tests', 'test', '__tests__'].includes(file)) {
+                arrayOfFiles = getAllFiles(fullPath, arrayOfFiles);
+            }
         } else {
             arrayOfFiles.push(fullPath);
         }

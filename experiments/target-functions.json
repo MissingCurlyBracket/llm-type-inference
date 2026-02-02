@@ -1,0 +1,167 @@
+[
+    {
+        "repository": "temp-typescript-repo",
+        "files": [
+            {
+                "path": "src/compiler/parser.ts",
+                "functions": [
+                    "parseSourceFile",
+                    "parseDeclaration",
+                    "parseStatement",
+                    "parseExpression",
+                    "parseType"
+                ]
+            },
+            {
+                "path": "src/compiler/checker.ts",
+                "functions": [
+                    "checkSourceFile",
+                    "checkExpression",
+                    "checkTypeRelatedTo",
+                    "getTypeOfSymbol",
+                    "getResolvedSignature",
+                    "checkFunctionDeclaration"
+                ]
+            },
+            {
+                "path": "src/compiler/emitter.ts",
+                "functions": [
+                    "emitFiles",
+                    "emitSourceFile",
+                    "emitNode",
+                    "emitFunctionDeclaration"
+                ]
+            },
+            {
+                "path": "src/compiler/binder.ts",
+                "functions": [
+                    "bindSourceFile",
+                    "bind",
+                    "bindDeclaration"
+                ]
+            },
+            {
+                "path": "src/services/services.ts",
+                "functions": [
+                    "getCompletionsAtPosition",
+                    "getQuickInfoAtPosition",
+                    "getSignatureHelpItems",
+                    "getDefinitionAndBoundSpan",
+                    "findRenameLocations"
+                ]
+            },
+            {
+                "path": "src/services/completions.ts",
+                "functions": [
+                    "getCompletionsForExpression",
+                    "getCompletionsFromType",
+                    "getCompletionEntriesFromSymbols",
+                    "createCompletionDetails"
+                ]
+            },
+            {
+                "path": "src/server/session.ts",
+                "functions": [
+                    "executeCommand",
+                    "getCompletions",
+                    "getCompletionEntryDetails"
+                ]
+            }
+        ]
+    },
+    {
+        "repository": "temp-vscode-repo",
+        "files": [
+            {
+                "path": "src/vs/base/common/uri.ts",
+                "functions": [
+                    "parse",
+                    "file",
+                    "joinPath",
+                    "revive"
+                ]
+            },
+            {
+                "path": "src/vs/platform/instantiation/common/instantiationService.ts",
+                "functions": [
+                    "createInstance",
+                    "invokeFunction",
+                    "createChild"
+                ]
+            },
+            {
+                "path": "src/vs/workbench/services/editor/browser/editorService.ts",
+                "functions": [
+                    "openEditor",
+                    "replaceEditors",
+                    "isVisible"
+                ]
+            },
+            {
+                "path": "src/vs/editor/browser/editorBrowser.ts",
+                "functions": [
+                    "create",
+                    "createDiffEditor"
+                ]
+            },
+            {
+                "path": "src/vs/workbench/browser/workbench.ts",
+                "functions": [
+                    "create",
+                    "render",
+                    "startup"
+                ]
+            }
+        ]
+    },
+    {
+        "repository": "temp-vue-repo",
+        "files": [
+            {
+                "path": "packages/compiler-sfc/src/parse.ts",
+                "functions": [
+                    "parse",
+                    "doParse"
+                ]
+            },
+            {
+                "path": "packages/compiler-sfc/src/compileScript.ts",
+                "functions": [
+                    "compileScript",
+                    "processScriptSetup",
+                    "defineProps"
+                ]
+            },
+            {
+                "path": "packages/server-renderer/src/render.ts",
+                "functions": [
+                    "render",
+                    "renderNode",
+                    "renderComponent"
+                ]
+            },
+            {
+                "path": "src/core/instance/init.ts",
+                "functions": [
+                    "initMixin",
+                    "initState"
+                ]
+            },
+            {
+                "path": "src/core/instance/render.ts",
+                "functions": [
+                    "renderMixin",
+                    "installRenderHelpers"
+                ]
+            },
+            {
+                "path": "src/core/vdom/patch.ts",
+                "functions": [
+                    "createPatchFunction",
+                    "patchVnode",
+                    "createElm"
+                ]
+            }
+        ]
+    }
+]
