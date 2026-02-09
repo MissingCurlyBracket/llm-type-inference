@@ -1,0 +1,11 @@
+{
+    "name": "@syntest/prng",
+    "version": "1.0.0",
+    "type": "module",
+    "main": "./index.ts",
+    "types": "./index.ts",
+    "dependencies": {
+        "bignumber.js": "9.1.2",
+        "seedrandom": "3.0.5"
+    }
+}

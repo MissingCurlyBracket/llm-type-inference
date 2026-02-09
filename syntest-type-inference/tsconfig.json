@@ -1,0 +1,46 @@
+{
+    "compilerOptions": {
+        "target": "ES2021",
+        "module": "commonjs",
+        "lib": [
+            "ES2021"
+        ],
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "outDir": "./dist",
+        "rootDir": ".",
+        "strict": false,
+        "noImplicitAny": true,
+        "esModuleInterop": true,
+        "experimentalDecorators": true,
+        "downlevelIteration": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "baseUrl": ".",
+        "paths": {
+            "@syntest/diagnostics": [
+                "./vendor/diagnostics/index.ts"
+            ],
+            "@syntest/logging": [
+                "./vendor/logging/index.ts"
+            ],
+            "@syntest/prng": [
+                "./vendor/prng/index.ts"
+            ],
+            "@syntest/ast-visitor-javascript": [
+                "./vendor/ast-visitor-javascript/index.ts"
+            ]
+        }
+    },
+    "include": [
+        "index.ts",
+        "lib/**/*.ts",
+        "vendor/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist"
+    ]
+}

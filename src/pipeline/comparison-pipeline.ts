@@ -8,6 +8,7 @@ import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { RAGTypeInference } from '../rag-inference/rag-inference.js';
+import { SyntestTypeInference } from '../syntest-inference/syntest-type-inference.js';
 
 const execAsync = promisify(exec);
 
@@ -28,9 +29,11 @@ interface ComparisonResult {
     traditionalMetrics?: any;
     astMetrics?: any;
     ragMetrics?: any;
+    syntestMetrics?: any;
     traditionalPromptTokens?: number;
     astPromptTokens?: number;
     ragPromptTokens?: number;
+    syntestPromptTokens?: number;
     duration: number;
     error?: string;
 }
@@ -56,6 +59,13 @@ interface PipelineResults {
             totalPromptTokens: number;
         };
         rag: {
+            averageAccuracy: number;
+            averageMRR: number;
+            totalCorrect: number;
+            totalPredictions: number;
+            totalPromptTokens: number;
+        };
+        syntest: {
             averageAccuracy: number;
             averageMRR: number;
             totalCorrect: number;
@@ -309,12 +319,15 @@ export class ComparisonPipeline {
         let traditionalMetrics: any = null;
         let astMetrics: any = null;
         let ragMetrics: any = null;
+        let syntestMetrics: any = null;
         let traditionalResults: any[] = [];
         let astResults: any[] = [];
         let ragResults: any[] = [];
+        let syntestResults: any[] = [];
         let traditionalPromptTokens: number = 0;
         let astPromptTokens: number = 0;
         let ragPromptTokens: number = 0;
+        let syntestPromptTokens: number = 0;
 
         try {
             // Get provider configuration from environment
@@ -346,6 +359,15 @@ export class ComparisonPipeline {
             ragMetrics = MetricsCalculator.calculateMetrics(ragResults, groundTruth);
             console.log(`    - Accuracy: ${(ragMetrics.accuracy * 100).toFixed(2)}%`);
 
+            // Run SynTest probabilistic approach
+            console.log('  - Running SynTest probabilistic inference...');
+            const syntestInfer = await SyntestTypeInference.create();
+            const syntestOutput = await syntestInfer.inferTypesFromFile(tempJsFile);
+            syntestResults = syntestOutput.results;
+            syntestPromptTokens = syntestOutput.promptTokens;
+            syntestMetrics = MetricsCalculator.calculateMetrics(syntestResults, groundTruth);
+            console.log(`    - Accuracy: ${(syntestMetrics.accuracy * 100).toFixed(2)}%`);
+
         } finally {
             // Clean up temporary JS file
             if (fs.existsSync(tempJsFile)) {
@@ -360,9 +382,11 @@ export class ComparisonPipeline {
             traditionalMetrics,
             astMetrics,
             ragMetrics,
+            syntestMetrics,
             traditionalPromptTokens,
             astPromptTokens,
             ragPromptTokens,
+            syntestPromptTokens,
         };
     }
 
@@ -375,6 +399,7 @@ export class ComparisonPipeline {
         const traditionalResults = successful.filter(r => r.traditionalMetrics);
         const astResults = successful.filter(r => r.astMetrics);
         const ragResults = successful.filter(r => r.ragMetrics);
+        const syntestResults = successful.filter(r => r.syntestMetrics);
 
         const traditionalStats = this.calculateAggregateMetrics(
             traditionalResults.map(r => r.traditionalMetrics),
@@ -388,6 +413,10 @@ export class ComparisonPipeline {
             ragResults.map(r => r.ragMetrics),
             ragResults.map(r => r.ragPromptTokens || 0)
         );
+        const syntestStats = this.calculateAggregateMetrics(
+            syntestResults.map(r => r.syntestMetrics),
+            syntestResults.map(r => r.syntestPromptTokens || 0)
+        );
 
         const pipelineResults: PipelineResults = {
             totalFiles: results.length,
@@ -398,6 +427,7 @@ export class ComparisonPipeline {
                 traditional: traditionalStats,
                 ast: astStats,
                 rag: ragStats,
+                syntest: syntestStats,
             }
         };
 
@@ -473,6 +503,13 @@ export class ComparisonPipeline {
             console.log(`  - Average MRR: ${results.aggregateMetrics.rag.averageMRR.toFixed(3)}`);
             console.log(`  - Total Prompt Tokens: ${results.aggregateMetrics.rag.totalPromptTokens}`);
         }
+
+        if (results.aggregateMetrics.syntest.totalPredictions > 0) {
+            console.log('\nSynTest Probabilistic Approach:');
+            console.log(`  - Average Accuracy: ${(results.aggregateMetrics.syntest.averageAccuracy * 100).toFixed(2)}%`);
+            console.log(`  - Average MRR: ${results.aggregateMetrics.syntest.averageMRR.toFixed(3)}`);
+            console.log(`  - Total Prompt Tokens: ${results.aggregateMetrics.syntest.totalPromptTokens}`);
+        }
     }
 
     private async saveResults(results: PipelineResults): Promise<void> {
@@ -530,6 +567,13 @@ export class ComparisonPipeline {
             report += `- **Total Prompt Tokens:** ${results.aggregateMetrics.rag.totalPromptTokens}\n\n`;
         }
 
+        if (results.aggregateMetrics.syntest.totalPredictions > 0) {
+            report += `### SynTest Probabilistic Approach\n\n`;
+            report += `- **Average Accuracy:** ${(results.aggregateMetrics.syntest.averageAccuracy * 100).toFixed(2)}%\n`;
+            report += `- **Average MRR:** ${results.aggregateMetrics.syntest.averageMRR.toFixed(3)}\n`;
+            report += `- **Total Prompt Tokens:** ${results.aggregateMetrics.syntest.totalPromptTokens}\n\n`;
+        }
+
         report += `## Individual Results\n\n`;
 
         results.results.forEach((result, index) => {
@@ -562,6 +606,14 @@ export class ComparisonPipeline {
                     report += `- RAG: ${(result.ragMetrics.accuracy * 100).toFixed(1)}% accuracy, ${result.ragMetrics.mrr.toFixed(3)} MRR (${result.ragMetrics.correctPredictions}/${result.ragMetrics.totalPredictions})`;
                     if (result.ragPromptTokens) {
                         report += ` - ${result.ragPromptTokens.toLocaleString()} prompt tokens`;
+                    }
+                    report += `\n`;
+                }
+
+                if (result.syntestMetrics) {
+                    report += `- SynTest: ${(result.syntestMetrics.accuracy * 100).toFixed(1)}% accuracy, ${result.syntestMetrics.mrr.toFixed(3)} MRR (${result.syntestMetrics.correctPredictions}/${result.syntestMetrics.totalPredictions})`;
+                    if (result.syntestPromptTokens) {
+                        report += ` - ${result.syntestPromptTokens.toLocaleString()} prompt tokens`;
                     }
                     report += `\n`;
                 }

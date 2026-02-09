@@ -7,7 +7,7 @@
             "ES2020"
         ],
         "outDir": "./dist",
-        "rootDir": "./src",
+        "rootDir": ".",
         "strict": true,
         "esModuleInterop": true,
         "skipLibCheck": true,
@@ -15,7 +15,22 @@
         "resolveJsonModule": true,
         "declaration": true,
         "declarationMap": true,
-        "sourceMap": true
+        "sourceMap": true,
+        "baseUrl": ".",
+        "paths": {
+            "@syntest/diagnostics": [
+                "./syntest-type-inference/vendor/diagnostics/index.ts"
+            ],
+            "@syntest/logging": [
+                "./syntest-type-inference/vendor/logging/index.ts"
+            ],
+            "@syntest/prng": [
+                "./syntest-type-inference/vendor/prng/index.ts"
+            ],
+            "@syntest/ast-visitor-javascript": [
+                "./syntest-type-inference/vendor/ast-visitor-javascript/index.ts"
+            ]
+        }
     },
     "include": [
         "src/**/*"
@@ -25,5 +40,6 @@
         "dist",
         "**/*.test.ts",
         "temp-typescript-repo",
+        "syntest-type-inference"
     ]
 }

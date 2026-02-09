@@ -1,5 +1,6 @@
 import { TypeInference } from './basic-inference/type-inference.js';
 import { ASTTypeInference } from './ast-inference/ast-type-inference.js';
+import { SyntestTypeInference } from './syntest-inference/syntest-type-inference.js';
 import { TypeScriptParser, GroundTruthType } from './evaluation/typescript-parser.js';
 import { MetricsCalculator } from './evaluation/evaluation-metrics.js';
 import { ProviderConfig } from './provider-config.js';
@@ -98,9 +99,32 @@ async function main(): Promise<void> {
                 console.error('AST approach failed:', error instanceof Error ? error.message : String(error));
             }
 
-            // Step 5: Detailed comparison
+            // Step 5: Run SynTest probabilistic approach
+            console.log('\n5. SynTest Probabilistic Approach:');
+            console.log('Running AST-based probabilistic type inference (no LLM)...');
+
+            let syntestResults: any[] = [];
+            let syntestMetrics: any = null;
+            let syntestPromptTokens: number = 0;
+
+            try {
+                const syntestInference = await SyntestTypeInference.create();
+                const response = await syntestInference.inferTypesFromFile(tempJsFile);
+                syntestResults = response.results;
+                syntestPromptTokens = response.promptTokens;
+                syntestMetrics = MetricsCalculator.calculateMetrics(syntestResults, groundTruth);
+
+                console.log('Results:');
+                console.log(JSON.stringify(syntestResults, null, 2));
+                console.log(`\nMetrics:`);
+                printMetrics('SynTest', syntestMetrics, syntestPromptTokens);
+            } catch (error) {
+                console.error('SynTest approach failed:', error instanceof Error ? error.message : String(error));
+            }
+
+            // Step 6: Detailed comparison
             if (traditionalMetrics && astMetrics) {
-                console.log('\n5. Approach Comparison:');
+                console.log('\n6. Approach Comparison:');
                 console.log('='.repeat(40));
                 console.log(`Better Accuracy: ${traditionalMetrics.accuracy > astMetrics.accuracy ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.accuracy, astMetrics.accuracy).toFixed(3)} vs ${Math.min(traditionalMetrics.accuracy, astMetrics.accuracy).toFixed(3)})`);
                 console.log(`Better MRR: ${traditionalMetrics.mrr > astMetrics.mrr ? 'Traditional' : 'AST'} (${Math.max(traditionalMetrics.mrr, astMetrics.mrr).toFixed(3)} vs ${Math.min(traditionalMetrics.mrr, astMetrics.mrr).toFixed(3)})`);
@@ -108,18 +132,29 @@ async function main(): Promise<void> {
                 if (traditionalPromptTokens > 0 && astPromptTokens > 0) {
                     console.log(`Prompt Tokens: Traditional ${traditionalPromptTokens.toLocaleString()} vs AST ${astPromptTokens.toLocaleString()} (${traditionalPromptTokens > astPromptTokens ? 'AST' : 'Traditional'} more efficient)`);
                 }
+
+                if (syntestMetrics) {
+                    console.log(`\nSynTest: Accuracy ${(syntestMetrics.accuracy * 100).toFixed(1)}%, MRR ${syntestMetrics.mrr.toFixed(3)} (no LLM, 0 tokens)`);
+                }
                 // Detailed analysis for traditional approach
                 if (traditionalResults.length > 0) {
-                    console.log('\n6. Traditional Approach - Detailed Analysis:');
+                    console.log('\n7. Traditional Approach - Detailed Analysis:');
                     const traditionalComparison = MetricsCalculator.generateDetailedComparison(traditionalResults, groundTruth);
                     printDetailedComparison(traditionalComparison);
                 }
 
                 // Detailed analysis for AST approach
                 if (astResults.length > 0) {
-                    console.log('\n7. AST Approach - Detailed Analysis:');
+                    console.log('\n8. AST Approach - Detailed Analysis:');
                     const astComparison = MetricsCalculator.generateDetailedComparison(astResults, groundTruth);
                     printDetailedComparison(astComparison);
+                }
+
+                // Detailed analysis for SynTest approach
+                if (syntestResults.length > 0) {
+                    console.log('\n9. SynTest Approach - Detailed Analysis:');
+                    const syntestComparison = MetricsCalculator.generateDetailedComparison(syntestResults, groundTruth);
+                    printDetailedComparison(syntestComparison);
                 }
             }
 

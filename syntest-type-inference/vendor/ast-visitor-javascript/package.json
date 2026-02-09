@@ -1,0 +1,7 @@
+{
+    "name": "@syntest/ast-visitor-javascript",
+    "version": "1.0.0",
+    "type": "module",
+    "main": "./index.ts",
+    "types": "./index.ts"
+}
