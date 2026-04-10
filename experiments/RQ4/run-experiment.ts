@@ -1,21 +1,20 @@
 
 import { QdrantClient } from '@qdrant/js-client-rest';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
-import { randomUUID } from 'crypto';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { extractInformationFromDirectory, babelParse } from '../../src/information-extraction/index.js';
 import { env, pipeline } from '@xenova/transformers';
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import _traverse from '@babel/traverse';
 import * as t from '@babel/types';
+import type { NodePath } from '@babel/traverse';
 
-// Hack for babel traverse import compatibility
 const traverse = (_traverse as any).default as (parent: t.Node, opts: any) => void;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Allow local models
 env.allowLocalModels = true;
 
 interface TargetRepo {
@@ -63,7 +62,7 @@ function findFunctionSource(filePath: string, functionName: string): string | nu
         let foundSource: string | null = null;
 
         traverse(ast, {
-            Function(path) {
+            Function(path: NodePath<t.Function>) {
                 if (foundSource) return;
                 const node = path.node;
                 let name = '<anonymous>';
@@ -196,16 +195,7 @@ async function runExperiment() {
         console.log(`Querying target functions for ${repoName}...`);
 
         for (const fileDef of repo.files) {
-            const fullFilePath = path.resolve(repoPath, fileDef.path); // path in json is relative to repo root? 
-            // The paths in json are like "src/compiler/parser.ts"
-            // Wait, in target-functions.json, path is relative to repo.
-            // But verify: 
-            // target-functions.json: "path": "src/compiler/parser.ts"
-            // repoPath: "/.../temp-typescript-repo"
-            // fullFilePath should be join(repoPath, fileDef.path).
-
-            // Check if file exists there.
-            // Sometimes repo structure might be flatten if we were using the temp-js-repo logic from before, but here we are using the real repo.
+            const fullFilePath = path.resolve(repoPath, fileDef.path);
 
             for (const funcName of fileDef.functions) {
                 console.log(`Querying for function: ${funcName} in ${fileDef.path}`);

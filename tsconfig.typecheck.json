@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*",
+    "experiments/**/*",
+    "scripts/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "temp-typescript-repo",
+    "syntest-type-inference",
+    "src/syntest-inference/**/*",
+    "src/compare.ts",
+    "src/pipeline/comparison-pipeline.ts",
+    "src/pipeline/run-pipeline.ts"
+  ]
+}

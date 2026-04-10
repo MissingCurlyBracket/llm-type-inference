@@ -16,6 +16,10 @@
         "declaration": true,
         "declarationMap": true,
         "sourceMap": true,
+        "types": [
+            "node"
+        ],
+        "ignoreDeprecations": "5.0",
         "baseUrl": ".",
         "paths": {
             "@syntest/diagnostics": [

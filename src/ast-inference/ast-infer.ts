@@ -42,7 +42,7 @@ async function main(): Promise<void> {
 
         if (errorMessage.includes('Ollama')) {
             console.error('\nMake sure Ollama is running and the model is installed');
-            console.error('Install with: ollama pull qwen2.5-coder:20b');
+            console.error('Install with: ollama pull <model>:<parameter_size>');
         }
 
         if (errorMessage.includes('Failed to parse JavaScript code')) {
